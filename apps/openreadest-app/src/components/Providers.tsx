@@ -1,0 +1,90 @@
+'use client';
+
+import '@/utils/polyfill';
+import i18n from '@/i18n/i18n';
+import { useEffect } from 'react';
+import { IconContext } from 'react-icons';
+import { locale as getNativeLocale } from '@tauri-apps/plugin-os';
+import { AuthProvider } from '@/context/AuthContext';
+import { useEnv } from '@/context/EnvContext';
+import { SyncProvider } from '@/context/SyncContext';
+import { isTauriAppPlatform } from '@/services/environment';
+import { initSystemThemeListener, loadDataTheme } from '@/store/themeStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useSafeAreaInsets } from '@/hooks/useSafeAreaInsets';
+import { useDefaultIconSize } from '@/hooks/useResponsiveSize';
+import { useBackgroundTexture } from '@/hooks/useBackgroundTexture';
+import { useEinkMode } from '@/hooks/useEinkMode';
+import { cacheSystemUILanguage } from '@/utils/lang';
+import { getLocale } from '@/utils/misc';
+import { getDirFromUILanguage } from '@/utils/rtl';
+import WebDavAutoSyncRunner from '@/app/library/components/WebDavAutoSyncRunner';
+
+const Providers = ({ children }: { children: React.ReactNode }) => {
+  const { envConfig, appService } = useEnv();
+  const { applyUILanguage } = useSettingsStore();
+  const { applyBackgroundTexture } = useBackgroundTexture();
+  const { applyEinkMode } = useEinkMode();
+  const iconSize = useDefaultIconSize();
+  useSafeAreaInsets(); // Initialize safe area insets
+
+  useEffect(() => {
+    const handlerLanguageChanged = (lng: string) => {
+      document.documentElement.lang = lng;
+      // Set RTL class on document for targeted styling without affecting layout
+      const dir = getDirFromUILanguage();
+      if (dir === 'rtl') {
+        document.documentElement.classList.add('ui-rtl');
+      } else {
+        document.documentElement.classList.remove('ui-rtl');
+      }
+    };
+
+    const locale = getLocale();
+    handlerLanguageChanged(locale);
+    i18n.on('languageChanged', handlerLanguageChanged);
+    return () => {
+      i18n.off('languageChanged', handlerLanguageChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    loadDataTheme();
+    if (appService) {
+      initSystemThemeListener(appService);
+      appService.loadSettings().then(async (settings) => {
+        let systemLanguage = navigator.language || 'en';
+        if (isTauriAppPlatform()) {
+          try {
+            systemLanguage = (await getNativeLocale()) || systemLanguage;
+          } catch {
+            // Fall back to the WebView locale when the native locale API is unavailable.
+          }
+        }
+        cacheSystemUILanguage(systemLanguage);
+        const globalViewSettings = settings.globalViewSettings;
+        applyUILanguage(globalViewSettings.uiLanguage || undefined, systemLanguage);
+        applyBackgroundTexture(envConfig, globalViewSettings);
+        if (globalViewSettings.isEink) {
+          applyEinkMode(true);
+        }
+      });
+    }
+  }, [envConfig, appService, applyUILanguage, applyBackgroundTexture, applyEinkMode]);
+
+  // Make sure appService is available in all children components
+  if (!appService) return;
+
+  return (
+    <AuthProvider>
+      <IconContext.Provider value={{ size: `${iconSize}px` }}>
+        <SyncProvider>
+          <WebDavAutoSyncRunner />
+          {children}
+        </SyncProvider>
+      </IconContext.Provider>
+    </AuthProvider>
+  );
+};
+
+export default Providers;

@@ -1,0 +1,34 @@
+{
+  "name": "@openreadest/monorepo",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "repository": "kiri603/KiriReadest",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "tauri": "pnpm --filter @openreadest/app tauri",
+    "dev-web": "pnpm --filter @openreadest/app dev-web",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,json,md,html,yml}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,css,json,md,html,yml}\""
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/js": "^9.9.1",
+    "@sindresorhus/tsconfig": "^6.0.0",
+    "eslint": "^9.28.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.6",
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.8",
+    "typescript": "^5"
+  },
+  "pnpm": {
+    "overrides": {
+      "glob": ">=11.1.0",
+      "jws": ">=4.0.1",
+      "vite": ">=7.0.8",
+      "body-parser": ">=2.2.1",
+      "@babel/runtime": ">=7.26.10",
+      "@babel/helpers": ">=7.26.10"
+    }
+  }
+}

@@ -1,4 +1,57 @@
-import type { BookNote, WordNote } from '@/types/book';
+import type { BookNote, WordNote, WordNoteTombstone } from '@/types/book';
+
+export interface WordNotesData {
+  wordNotes?: WordNote[];
+  wordNoteTombstones?: WordNoteTombstone[];
+}
+
+export const getWordNoteById = (notes: WordNote[], id?: string | null) =>
+  id ? notes.find((entry) => entry.id === id || entry.aliases?.includes(id)) : undefined;
+
+const compare = (a: string | number, b: string | number) => (a < b ? -1 : a > b ? 1 : 0);
+
+// Merge by normalized word, retaining old IDs so source annotations stay linked.
+// A deletion wins ties; a later explicit edit can recreate the word.
+export const mergeWordNotesData = (...sources: WordNotesData[]): Required<WordNotesData> => {
+  const deleted = new Map<string, number>();
+  for (const source of sources) {
+    for (const tombstone of source.wordNoteTombstones ?? []) {
+      deleted.set(tombstone.word, Math.max(deleted.get(tombstone.word) ?? 0, tombstone.deletedAt));
+    }
+  }
+  const groups = new Map<string, WordNote[]>();
+  for (const source of sources) {
+    for (const note of source.wordNotes ?? []) {
+      if (deleted.has(note.word) && note.updatedAt <= deleted.get(note.word)!) continue;
+      const group = groups.get(note.word) ?? [];
+      group.push(note);
+      groups.set(note.word, group);
+    }
+  }
+  const wordNotes = [...groups.entries()]
+    .sort(([a], [b]) => compare(a, b))
+    .map(([word, notes]) => {
+      const winner = [...notes].sort(
+        (a, b) =>
+          compare(b.updatedAt, a.updatedAt) || compare(b.note, a.note) || compare(b.id, a.id),
+      )[0]!;
+      const ids = [...new Set(notes.flatMap((note) => [note.id, ...(note.aliases ?? [])]))].sort();
+      return {
+        id: ids[0]!,
+        ...(ids.length > 1 ? { aliases: ids.slice(1) } : {}),
+        word,
+        note: winner.note,
+        createdAt: Math.min(...notes.map((note) => note.createdAt)),
+        updatedAt: winner.updatedAt,
+      };
+    });
+  return {
+    wordNotes,
+    wordNoteTombstones: [...deleted.entries()]
+      .sort(([a], [b]) => compare(a, b))
+      .map(([word, deletedAt]) => ({ word, deletedAt })),
+  };
+};
 
 const CJK_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const CJK_CHARACTERS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
@@ -23,6 +76,7 @@ export const upsertWordNote = (
   const existing = notes.find((note) => note.word === word);
   const updated: WordNote = {
     id: existing?.id ?? crypto.randomUUID(),
+    ...(existing?.aliases?.length ? { aliases: existing.aliases } : {}),
     word,
     note: content.trim(),
     createdAt: existing?.createdAt ?? now,
@@ -34,7 +88,7 @@ export const upsertWordNote = (
 };
 
 export const resolveWordNote = (note: BookNote, wordNotes: WordNote[] = []): BookNote => {
-  const shared = wordNotes.find((entry) => entry.id === note.wordNoteId);
+  const shared = getWordNoteById(wordNotes, note.wordNoteId);
   return shared ? { ...note, note: shared.note, updatedAt: shared.updatedAt } : note;
 };
 

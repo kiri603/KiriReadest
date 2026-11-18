@@ -5,7 +5,7 @@ import * as CFI from 'foliate-js/epubcfi.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
 import { useEnv } from '@/context/EnvContext';
 import { BookNote, BooknoteGroup, HighlightColor, HighlightStyle } from '@/types/book';
-import { resolveWordNote } from '@/utils/wordNotes';
+import { getWordNoteById, resolveWordNote } from '@/utils/wordNotes';
 import { NOTE_PREFIX } from '@/types/view';
 import { NativeTouchEventType } from '@/types/system';
 import { getLocale, getOSPlatform, makeSafeFilename, uniqueId } from '@/utils/misc';
@@ -68,7 +68,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [selection, setSelection] = useState<TextSelection | null>(null);
   const [showAnnotPopup, setShowAnnotPopup] = useState(false);
   const [wordNoteId, setWordNoteId] = useState<string | null>(null);
-  const activeWordNote = settings.wordNotes?.find((note) => note.id === wordNoteId);
+  const activeWordNote = getWordNoteById(settings.wordNotes ?? [], wordNoteId);
   const [showWiktionaryPopup, setShowWiktionaryPopup] = useState(false);
   const [showWikipediaPopup, setShowWikipediaPopup] = useState(false);
   const [showTranslatorPopup, setShowTranslatorPopup] = useState(false);

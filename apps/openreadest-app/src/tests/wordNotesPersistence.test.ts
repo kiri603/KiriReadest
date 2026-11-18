@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BookNote } from '@/types/book';
 import type { EnvConfigType } from '@/services/environment';
 import { useSettingsStore } from '@/store/settingsStore';
-import { saveNoteScope, saveWordNote, removeWordNote } from '@/helpers/wordNotes';
+import {
+  createWordNotesSyncStore,
+  saveNoteScope,
+  saveWordNote,
+  removeWordNote,
+} from '@/helpers/wordNotes';
 import { resolveWordNote } from '@/utils/wordNotes';
 
 vi.mock('@/i18n/i18n', () => ({ default: { changeLanguage: vi.fn() } }));
@@ -21,7 +26,11 @@ const local: BookNote = {
 beforeEach(() => {
   saveSettings.mockReset().mockResolvedValue(undefined);
   useSettingsStore.setState({
-    settings: { ...useSettingsStore.getState().settings, wordNotes: undefined },
+    settings: {
+      ...useSettingsStore.getState().settings,
+      wordNotes: undefined,
+      wordNoteTombstones: undefined,
+    },
   });
 });
 
@@ -59,6 +68,9 @@ describe('word note persistence', () => {
     expect(detached).toMatchObject({ id: local.id, cfi: local.cfi, note: local.note });
     expect(detached.wordNoteId).toBeUndefined();
     expect(useSettingsStore.getState().settings.wordNotes).toEqual([]);
+    expect(useSettingsStore.getState().settings.wordNoteTombstones).toEqual([
+      { word: 'read', deletedAt: expect.any(Number) },
+    ]);
   });
 
   it('does not remove a global word note when saving an unrelated local annotation', async () => {
@@ -75,5 +87,57 @@ describe('word note persistence', () => {
     expect(useSettingsStore.getState().settings.wordNotes).toBe(before);
     await expect(removeWordNote(env, shared.wordNoteId!)).rejects.toThrow('Disk full');
     expect(useSettingsStore.getState().settings.wordNotes).toBe(before);
+  });
+
+  it('preserves both entries when two saves happen concurrently', async () => {
+    await Promise.all([saveWordNote(env, 'read', 'A'), saveWordNote(env, 'book', 'B')]);
+    expect(
+      useSettingsStore
+        .getState()
+        .settings.wordNotes!.map((n) => n.word)
+        .sort(),
+    ).toEqual(['book', 'read']);
+    expect(saveSettings.mock.calls.at(-1)![0].wordNotes).toHaveLength(2);
+  });
+
+  it('merges a sync import with a local save that is still in progress', async () => {
+    let finish!: () => void;
+    saveSettings.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const localSave = saveWordNote(env, 'read', 'local');
+    await vi.waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1));
+    const store = createWordNotesSyncStore(await env.getAppService());
+    const importing = store.merge({
+      wordNotes: [{ id: 'remote', word: 'book', note: 'remote', createdAt: 1, updatedAt: 2 }],
+    });
+    finish();
+    await Promise.all([localSave, importing]);
+    expect(useSettingsStore.getState().settings.wordNotes!.map((n) => n.word)).toEqual([
+      'book',
+      'read',
+    ]);
+    expect(saveSettings.mock.calls.at(-1)![0].wordNotes).toHaveLength(2);
+  });
+
+  it('keeps merged source IDs through editing and accepts an alias when removing', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        wordNotes: [
+          { id: 'a', aliases: ['b'], word: 'read', note: 'old', createdAt: 1, updatedAt: 2 },
+        ],
+      },
+    });
+    const note = await saveWordNote(env, 'read', 'new');
+    expect(note.aliases).toEqual(['b']);
+    await removeWordNote(env, 'b');
+    expect(useSettingsStore.getState().settings.wordNotes).toEqual([]);
+    expect(useSettingsStore.getState().settings.wordNoteTombstones).toEqual([
+      { word: 'read', deletedAt: expect.any(Number) },
+    ]);
   });
 });

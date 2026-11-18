@@ -12,6 +12,7 @@ import {
 import { computeLocalFingerprint, LocalFingerprint } from './fingerprint';
 import { mergeWebDavJsonContent } from './contentMerge';
 import { stripDeviceLocalFieldsFromJsonText } from './deviceFields';
+import { WORD_NOTES_SYNC_KEY, syncWordNotesWithWebDav } from './wordNotesSync';
 import {
   createEmptyWebDavSyncState,
   mergeWebDavSyncStates,
@@ -390,6 +391,8 @@ export const syncWebDavSelection = async (
      * 「启用阅读统计」设置传入 false 即跳过。dryRun 时不同步。
      */
     includeStatistics?: boolean;
+    /** Cross-book entries and deletion tombstones; enabled by default. */
+    includeWordNotes?: boolean;
     dryRun?: boolean;
     /**
      * 远端探测兜底间隔（毫秒）。默认 DEFAULT_REMOTE_PROBE_INTERVAL_MS（30 分钟）；
@@ -423,6 +426,7 @@ export const syncWebDavSelection = async (
   const includeConfig = options.includeConfig ?? true;
   const includeCovers = options.includeCovers ?? true;
   const includeStatistics = (options.includeStatistics ?? true) && !options.dryRun;
+  const includeWordNotes = (options.includeWordNotes ?? true) && !options.dryRun;
 
   // 书目文件条目额外携带该书在本地书架（library.json）中的存活状态：
   // 「移除设备副本」（deleteAction:'local'）只删 bookFile、保留书架活条目，
@@ -471,7 +475,7 @@ export const syncWebDavSelection = async (
   }
 
   const progress: WebDavSyncProgress = {
-    totalItems: items.length + (includeStatistics ? 1 : 0),
+    totalItems: items.length + (includeStatistics ? 1 : 0) + (includeWordNotes ? 1 : 0),
     completedItems: 0,
     failedItems: 0,
   };
@@ -998,6 +1002,40 @@ export const syncWebDavSelection = async (
 
     progress.completedItems += 1;
     callbacks?.onProgress?.({ ...progress });
+  }
+
+  if (includeWordNotes) {
+    while (control?.shouldPause?.() && control?.waitUntilResumed && !control?.shouldCancel?.()) {
+      await control.waitUntilResumed();
+    }
+    if (!control?.shouldCancel?.()) {
+      progress.currentPath = WORD_NOTES_SYNC_KEY;
+      progress.currentDirection = 'upload';
+      callbacks?.onProgress?.({ ...progress });
+      try {
+        const { createWordNotesSyncStore } = await import('@/helpers/wordNotes');
+        const result = await syncWordNotesWithWebDav(client, createWordNotesSyncStore(appService));
+        log(
+          'upload',
+          WORD_NOTES_SYNC_KEY,
+          result.status === 'failed'
+            ? 'failed'
+            : result.status === 'pushed'
+              ? 'completed'
+              : 'skipped',
+          result.status === 'failed' ? result.error : '已合并跨书词条',
+        );
+      } catch (error) {
+        log(
+          'upload',
+          WORD_NOTES_SYNC_KEY,
+          'failed',
+          (error as Error).message || '跨书词条同步失败',
+        );
+      }
+      progress.completedItems += 1;
+      callbacks?.onProgress?.({ ...progress });
+    }
   }
 
   // 阅读统计不走文件级指纹/冲突流程：拉取远端快照行级合并进本地库，再带

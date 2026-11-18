@@ -91,6 +91,7 @@ const device = (config?: Record<string, unknown>) => {
         includeCovers: false,
         includeLibrary: false,
         includeStatistics: false,
+        includeWordNotes: false,
       }),
   };
 };

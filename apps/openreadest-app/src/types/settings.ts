@@ -1,7 +1,7 @@
 import { CustomTheme } from '@/styles/themes';
 import { CustomFont } from '@/styles/fonts';
 import { CustomTexture } from '@/styles/textures';
-import { HighlightColor, HighlightStyle, ViewSettings, WordNote } from './book';
+import { HighlightColor, HighlightStyle, ViewSettings, WordNote, WordNoteTombstone } from './book';
 import { OPDSCatalog } from './opds';
 import type { ImportedDictionary } from '@/services/dictionaries/types';
 
@@ -64,6 +64,7 @@ export interface AiTranslationSettings {
 
 export interface SystemSettings {
   wordNotes?: WordNote[];
+  wordNoteTombstones?: WordNoteTombstone[];
   aiTranslation?: AiTranslationSettings;
   version: number;
   localBooksDir: string;

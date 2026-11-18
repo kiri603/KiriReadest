@@ -6,7 +6,7 @@ import { TextSelection } from '@/utils/sel';
 import { md5Fingerprint } from '@/utils/md5';
 import { BookNote } from '@/types/book';
 import { useSettingsStore } from '@/store/settingsStore';
-import { normalizeWord, resolveWordNote } from '@/utils/wordNotes';
+import { getWordNoteById, normalizeWord, resolveWordNote } from '@/utils/wordNotes';
 import useShortcuts from '@/hooks/useShortcuts';
 import TextEditor, { TextEditorRef } from '@/components/TextEditor';
 import TextButton from '@/components/TextButton';
@@ -37,9 +37,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ onSave, onEdit }) => {
   useEffect(() => {
     setError('');
     const wordNotes = useSettingsStore.getState().settings.wordNotes ?? [];
-    setAllBooks(
-      Boolean(wordNotes.some((entry) => entry.id === notebookEditAnnotation?.wordNoteId)),
-    );
+    setAllBooks(Boolean(getWordNoteById(wordNotes, notebookEditAnnotation?.wordNoteId)));
     if (notebookEditAnnotation) {
       const noteText = resolveWordNote(notebookEditAnnotation, wordNotes).note;
       setNote(noteText);

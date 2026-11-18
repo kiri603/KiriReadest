@@ -5,7 +5,7 @@ const h = vi.hoisted(() => {
   const google = {
     name: 'google',
     label: 'Google Translate',
-    translate: vi.fn(async () => {
+    translate: vi.fn(async (): Promise<string[]> => {
       throw new Error('network unreachable');
     }),
   };
@@ -50,6 +50,18 @@ vi.mock('@/hooks/useTranslation', () => ({
 import { useTranslator } from '@/hooks/useTranslator';
 
 describe('useTranslator fallback', () => {
+  it('uses Google when a saved provider is no longer available', async () => {
+    const google = h.providers[0]!;
+    google.translate.mockResolvedValueOnce(['你好']);
+    const savedSettings = JSON.parse('{"provider":"yandex","targetLang":"zh-CN"}');
+    const { result } = renderHook(() => useTranslator(savedSettings));
+
+    await act(async () => {
+      await expect(result.current.translate(['hello'])).resolves.toEqual(['你好']);
+    });
+    expect(result.current.translator?.name).toBe('google');
+  });
+
   it('uses another translator when the selected one fails and tells the user', async () => {
     const { result } = renderHook(() =>
       useTranslator({ provider: 'google', sourceLang: 'en', targetLang: 'zh-CN' }),

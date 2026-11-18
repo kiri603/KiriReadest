@@ -108,18 +108,16 @@ describe('TranslatorPopup', () => {
     renderPopup();
 
     await waitFor(() => expect(screen.getByText('与……不同')).toBeTruthy());
-    await waitFor(() =>
-      expect(screen.queryByText('Unable to fetch the translation. Try again later.')).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 
-  it('still reports the failure when nothing else could translate the text', async () => {
+  it('shows network and proxy troubleshooting when translation fails', async () => {
     h.translate.mockRejectedValue(new Error('google translate is unreachable'));
 
     renderPopup();
 
-    await waitFor(() =>
-      expect(screen.getByText('Unable to fetch the translation. Try again later.')).toBeTruthy(),
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Google Translate failed. Check your network and proxy. If you use rule mode, try global mode.',
     );
   });
 

@@ -4,6 +4,23 @@ import { isTauriAppPlatform } from '@/services/environment';
 import { normalizeToShortLang } from '@/utils/lang';
 import { TranslationProvider } from '../types';
 
+const REQUEST_TIMEOUT_MS = 8000;
+
+async function fetchGoogleTranslation(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    return await window.fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (!isTauriAppPlatform()) throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  return tauriFetch(url, { connectTimeout: REQUEST_TIMEOUT_MS });
+}
+
 export const googleProvider: TranslationProvider = {
   name: 'google',
   label: _('Google Translate'),
@@ -25,8 +42,7 @@ export const googleProvider: TranslationProvider = {
       url.searchParams.append('tl', normalizeToShortLang(targetLang).toLowerCase());
       url.searchParams.append('q', line);
 
-      const fetch = isTauriAppPlatform() ? tauriFetch : window.fetch;
-      const response = await fetch(url.toString());
+      const response = await fetchGoogleTranslation(url.toString());
 
       if (!response.ok) {
         throw new Error(`Translation failed with status ${response.status}`);

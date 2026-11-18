@@ -230,6 +230,8 @@ corepack pnpm@10.14.0 --filter @openreadest/app test src/tests/brandTranslations
 
 ## 致谢与许可
 
+感谢 [LINUX DO](https://linux.do/) 为开源项目提供交流空间。
+
 KiriReadest 基于 [OpenReadest](https://github.com/luyishui/OpenReadest) 和 [Readest](https://github.com/readest/readest) 开发。感谢两代项目的作者和贡献者，来源与修改记录见 [NOTICE.md](NOTICE.md)。
 
 | 项目        | 贡献归属                                                  |

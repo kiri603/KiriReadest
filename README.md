@@ -138,16 +138,14 @@ Windows 设备朗读使用系统 SAPI 音色，Android 使用系统 TTS，其他
 
 ## 下载与安装
 
-**[前往 KiriReadest Releases →](https://github.com/kiri603/KiriReadest/releases)**
+**[下载安装与版本说明](https://github.com/kiri603/KiriReadest/releases/latest)**
 
-独立仓库正在准备首次发布，当前不承诺已有可下载版本。安装包、支持平台和版本说明以 Releases 实际内容为准。
+| 平台 | 安装包 |
+| --- | --- |
+| Windows x64 | [下载 .exe 安装程序](https://github.com/kiri603/KiriReadest/releases/download/v0.9.101/KiriReadest_0.9.101_x64-setup.exe) |
+| Android 7.0+（ARM64） | [下载 .apk 安装包](https://github.com/kiri603/KiriReadest/releases/download/v0.9.101/KiriReadest_0.9.101_arm64.apk) |
 
-| 平台          | 安装方式                                       |
-| ------------- | ---------------------------------------------- |
-| Windows       | 下载对应架构的安装程序，如 x64 .exe            |
-| Android       | 下载对应架构的 .apk 或通用包                   |
-| Linux / macOS | 在发布页提供相应产物时下载                     |
-| 浏览器        | 可运行本地开发版，步骤见下方；暂无公共在线站点 |
+其他平台的构建方式见下方开发说明。
 
 升级前请备份本地书库与设置。当前保留旧版内部应用 ID 和数据目录以兼容已有数据，更改产品名不会自动隔离旧数据。本项目不提供原 Readest 的账号、托管云空间或付费订阅服务。
 

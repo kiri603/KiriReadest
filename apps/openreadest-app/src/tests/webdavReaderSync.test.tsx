@@ -9,6 +9,8 @@ const mock = vi.hoisted(() => ({
   sync: vi.fn(),
   goTo: vi.fn(),
   load: vi.fn(),
+  dispatch: vi.fn(),
+  setLastSuccessAt: vi.fn(),
   syncing: false,
   libraryReady: true,
   lastSuccessAt: null as number | null,
@@ -43,7 +45,7 @@ vi.mock('@/services/webdav/sync/engine', () => ({ syncWebDavSelection: mock.sync
 vi.mock('@/services/webdav/sync/fingerprint', () => ({
   computeLocalFingerprint: async () => ({ md5: 'same' }),
 }));
-vi.mock('@/utils/event', () => ({ eventDispatcher: { dispatch: vi.fn() } }));
+vi.mock('@/utils/event', () => ({ eventDispatcher: { dispatch: mock.dispatch } }));
 vi.mock('@/store/webdavStore', () => {
   const state = () => ({
     autoSyncEnabled: true,
@@ -61,7 +63,7 @@ vi.mock('@/store/webdavStore', () => {
     setLastAutoSyncAttemptAt: vi.fn(),
     setProgress: vi.fn(),
     addLog: vi.fn(),
-    setLastSuccessAt: vi.fn(),
+    setLastSuccessAt: mock.setLastSuccessAt,
     setConflicts: vi.fn(),
   });
   return {
@@ -116,6 +118,8 @@ beforeEach(() => {
   mock.save.mockReset().mockResolvedValue(undefined);
   mock.load.mockReset().mockImplementation(async () => mock.disk);
   mock.goTo.mockReset().mockResolvedValue(undefined);
+  mock.dispatch.mockClear();
+  mock.setLastSuccessAt.mockClear();
   mock.sync.mockReset().mockResolvedValue({ conflicts: [], failures: [] });
 });
 afterEach(() => {
@@ -124,6 +128,44 @@ afterEach(() => {
 });
 
 describe('WebDAV while reading', () => {
+  it('silently defers a temporary sync state read failure and retries on the next scheduled run', async () => {
+    mock.sync.mockResolvedValueOnce({
+      conflicts: [],
+      failures: [{ status: 'failed', code: 'temporary-state-read' }],
+    });
+    render(<WebDavAutoSyncRunner />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(mock.setLastSuccessAt).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    });
+    expect(mock.sync).toHaveBeenCalledTimes(2);
+    expect(mock.setLastSuccessAt).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns when reading progress also fails during a temporary sync state error', async () => {
+    mock.sync.mockResolvedValueOnce({
+      conflicts: [],
+      failures: [
+        { status: 'failed', code: 'temporary-state-read' },
+        { status: 'failed', path: 'Books/book/config.json' },
+      ],
+    });
+    render(<WebDavAutoSyncRunner />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mock.dispatch).toHaveBeenCalledWith('toast', {
+      message: 'WebDAV 自动同步失败',
+      type: 'warning',
+    });
+  });
+
   it('retries a device switch requested while the previous network sync is in flight', async () => {
     let finishSync!: () => void;
     mock.sync.mockImplementationOnce(

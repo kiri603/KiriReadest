@@ -117,6 +117,7 @@
   "检测到 {{count}} 个同步冲突，请处理": "{{count}} sync conflict(s) detected, please resolve them in the sync window",
   "WebDAV 同步检测到 {{count}} 个冲突，请在同步窗口中处理": "WebDAV sync detected {{count}} conflict(s), please resolve them in the sync window",
   "WebDAV 自动同步失败": "WebDAV auto sync failed",
+  "同步状态暂未更新，可稍后重试": "Sync status could not be updated. Try again shortly.",
   "未知": "Unknown",
   "不足 1 分": "< 1 min",
   "{{minutes}} 分": "{{minutes}} min",

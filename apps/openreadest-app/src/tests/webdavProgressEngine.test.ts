@@ -4,6 +4,7 @@ import {
   getLocalBookPaths,
   getRemoteBookPaths,
   getLocalSyncStatePath,
+  getRemoteSyncStatePath,
 } from '@/services/webdav/sync/paths';
 import type { Book } from '@/types/book';
 import type { AppService, BaseDir } from '@/types/system';
@@ -11,6 +12,7 @@ import type { WebDavProfile } from '@/services/webdav/models';
 
 const server = vi.hoisted(() => ({
   files: new Map<string, { text: string; etag: string }>(),
+  getFailures: new Map<string, { status: number; error?: string }>(),
   revision: 0,
 }));
 
@@ -30,6 +32,8 @@ vi.mock('@/services/webdav/client/WebDavClient', () => ({
       };
     }
     async get(path: string) {
+      const failure = server.getFailures.get(path);
+      if (failure) return { ok: false, ...failure, headers: new Headers() };
       const file = server.files.get(path);
       return {
         ok: !!file,
@@ -104,6 +108,7 @@ const position = (location: string, time: number) => ({
 
 beforeEach(() => {
   server.files.clear();
+  server.getFailures.clear();
   server.revision = 0;
   let time = 1000;
   vi.spyOn(Date, 'now').mockImplementation(() => ++time);
@@ -112,6 +117,39 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('WebDAV progress across devices', () => {
+  it('still pulls reading progress and preserves sync state when the state request times out', async () => {
+    const pc = device(position('chapter-3', 20));
+    await pc.sync();
+    const statePath = getRemoteSyncStatePath();
+    const remoteState = server.files.get(statePath);
+    server.getFailures.set(statePath, { status: 0, error: '请求超时' });
+    const phone = device();
+
+    const result = await phone.sync();
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({ path: statePath, status: 'failed', code: 'temporary-state-read' }),
+    ]);
+    expect(phone.read().location).toBe('chapter-3');
+    expect(server.files.get(statePath)).toEqual(remoteState);
+  });
+
+  it('keeps an authorization failure when reading remote sync state actionable', async () => {
+    const statePath = getRemoteSyncStatePath();
+    server.getFailures.set(statePath, { status: 401 });
+
+    const result = await device().sync();
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        path: statePath,
+        status: 'failed',
+        message: expect.stringContaining('401'),
+      }),
+    ]);
+    expect(result.failures[0]).not.toHaveProperty('code', 'temporary-state-read');
+  });
+
   it('pulls the latest reading action instead of uploading a stale device snapshot', async () => {
     const pc = device(position('chapter-1', 10));
     const phone = device({ ...position('chapter-1', 10), viewSettings: { fontSize: 18 } });

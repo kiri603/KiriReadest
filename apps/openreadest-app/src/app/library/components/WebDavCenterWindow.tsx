@@ -40,6 +40,7 @@ import {
   WebDavConflictItem,
   WebDavConflictResolutionStrategy,
   WebDavProfile,
+  hasOnlyTemporaryStateReadFailure,
 } from '@/services/webdav/models';
 import {
   getUniqueWebDavProfileName,
@@ -117,6 +118,7 @@ export const WebDavCenterWindow = () => {
   } = useWebDavStore();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [deferredStateReadAt, setDeferredStateReadAt] = useState(0);
   const [editing, setEditing] = useState<WebDavProfile>(() => defaultProfile());
   const [selectedUploadHashes, setSelectedUploadHashes] = useState<Set<string>>(new Set());
   const [selectedDownloadHashes, setSelectedDownloadHashes] = useState<Set<string>>(new Set());
@@ -526,6 +528,7 @@ export const WebDavCenterWindow = () => {
     setSyncing(true);
     setPaused(false);
     setProgress({ totalItems: 0, completedItems: 0 });
+    setDeferredStateReadAt(0);
 
     // 记录同步前 library.json 指纹：同步可能在合并/下载远端墓碑时改写本地
     // 索引，即使本轮存在失败/冲突也要重载书架（与自动同步 Runner 同语义）。
@@ -591,7 +594,7 @@ export const WebDavCenterWindow = () => {
 
       // 已被取消/关闭窗口：部分同步结果不算成功，不提示、不记 lastSuccessAt
       if (cancelRef.current) return;
-      if (failures.length > 0) {
+      if (failures.length > 0 && !hasOnlyTemporaryStateReadFailure(failures)) {
         showToast(_('同步失败'), 'error');
         setActiveTab('logs');
       } else if (conflicts.length > 0) {
@@ -600,6 +603,9 @@ export const WebDavCenterWindow = () => {
         setConflicts(mergeWebDavConflictLists(useWebDavStore.getState().conflicts, conflicts));
         showToast(_('检测到 {{count}} 个同步冲突，请处理', { count: conflicts.length }), 'warning');
         setActiveTab('conflicts');
+      } else if (failures.length > 0) {
+        setDeferredStateReadAt(Date.now());
+        setActiveTab('logs');
       } else {
         const ts = Date.now();
         setLastSuccessAt(ts);
@@ -1130,6 +1136,11 @@ export const WebDavCenterWindow = () => {
 
           {activeTab === 'logs' && (
             <div className='h-72 overflow-y-auto p-3'>
+              {deferredStateReadAt > (lastSuccessAt ?? 0) && (
+                <p className='text-base-content/70 mb-2 text-sm' role='status'>
+                  {_('同步状态暂未更新，可稍后重试')}
+                </p>
+              )}
               <div className='flex items-center justify-between pb-2'>
                 <div className='text-base-content/60 text-xs'>{_('最多保留 500 条记录')}</div>
                 <div className='flex items-center gap-2'>

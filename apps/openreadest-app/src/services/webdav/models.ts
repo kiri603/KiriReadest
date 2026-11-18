@@ -30,7 +30,11 @@ export interface WebDavSyncLogItem {
   path: string;
   status: WebDavSyncItemStatus;
   message?: string;
+  code?: 'temporary-state-read';
 }
+
+export const hasOnlyTemporaryStateReadFailure = (failures: readonly WebDavSyncLogItem[]) =>
+  failures.length === 1 && failures[0]?.code === 'temporary-state-read';
 
 export interface WebDavSyncProgress {
   totalItems: number;

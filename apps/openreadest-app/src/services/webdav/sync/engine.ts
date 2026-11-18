@@ -250,6 +250,7 @@ type RemoteProbeResult =
   | { kind: 'unknown'; status?: number; error?: string };
 
 const NOT_FOUND_STATUSES = new Set([404, 410]);
+const TEMPORARY_STATE_READ_STATUSES = new Set([0, 408, 429, 502, 503, 504]);
 
 const readRemoteFingerprint = async (
   client: WebDavClient,
@@ -488,6 +489,7 @@ export const syncWebDavSelection = async (
     path: string,
     status: WebDavSyncLogItem['status'],
     message?: string,
+    code?: WebDavSyncLogItem['code'],
   ) => {
     const item = {
       id: uuidv4(),
@@ -496,6 +498,7 @@ export const syncWebDavSelection = async (
       path,
       status,
       message,
+      code,
     };
     if (status === 'failed') {
       failures.push(item);
@@ -507,11 +510,15 @@ export const syncWebDavSelection = async (
   // 远端状态读取失败（非 404）：本轮对远端已有状态一无所知。数据条目照常
   // 同步（每条有各自的探测容错），但状态持久化在末轮整体跳过——见函数尾部。
   if (remoteStateRead.unknown) {
+    const temporary =
+      remoteStateRead.status !== undefined &&
+      TEMPORARY_STATE_READ_STATUSES.has(remoteStateRead.status);
     log(
       'download',
       getRemoteSyncStatePath(),
       'failed',
       `读取远端同步状态失败（${remoteStateRead.status || remoteStateRead.error || '未知错误'}），本轮不回写同步状态`,
+      temporary ? 'temporary-state-read' : undefined,
     );
   }
 

@@ -5,6 +5,7 @@ import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useWebDavStore } from '@/store/webdavStore';
+import { hasOnlyTemporaryStateReadFailure } from '@/services/webdav/models';
 import { syncWebDavSelection } from '@/services/webdav/sync/engine';
 import { computeLocalFingerprint } from '@/services/webdav/sync/fingerprint';
 import { mergeWebDavConflictLists } from '@/services/webdav/sync/conflicts';
@@ -155,7 +156,7 @@ const WebDavAutoSyncRunner = () => {
             type: 'warning',
           });
         }
-        if (failures.length > 0) {
+        if (failures.length > 0 && !hasOnlyTemporaryStateReadFailure(failures)) {
           eventDispatcher.dispatch('toast', { message: _('WebDAV 自动同步失败'), type: 'warning' });
         }
         if (conflicts.length === 0 && failures.length === 0) {

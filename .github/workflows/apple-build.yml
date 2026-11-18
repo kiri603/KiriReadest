@@ -62,7 +62,7 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: '-'
         run: |
-          pnpm tauri build --target universal-apple-darwin --bundles dmg --ci
+          pnpm tauri build --target universal-apple-darwin --bundles app,dmg --ci
           bundle=../../target/universal-apple-darwin/release/bundle
           lipo -verify_arch arm64 x86_64 "$bundle/macos/KiriReadest.app/Contents/MacOS/openreadest"
           images=("$bundle"/dmg/*.dmg)

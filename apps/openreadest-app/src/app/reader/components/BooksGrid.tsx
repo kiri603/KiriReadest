@@ -197,7 +197,7 @@ const BooksGrid: React.FC<BooksGridProps> = ({ bookKeys, onCloseBook }) => {
                 gridInsets={gridInsets}
               />
             )}
-            <Annotator bookKey={bookKey} />
+            <Annotator bookKey={bookKey} gridInsets={gridInsets} />
             <SearchResultsNav bookKey={bookKey} gridInsets={gridInsets} />
             <BooknotesNav bookKey={bookKey} gridInsets={gridInsets} toc={bookDoc.toc || []} />
             <FootnotePopup bookKey={bookKey} bookDoc={bookDoc} />

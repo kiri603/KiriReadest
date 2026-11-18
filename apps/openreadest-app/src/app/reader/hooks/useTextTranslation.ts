@@ -4,6 +4,7 @@ import { UseTranslatorOptions } from '@/services/translators';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslator } from '@/hooks/useTranslator';
 import { walkTextNodes } from '@/utils/walk';
+import { applyVerticalTypography } from '@/utils/verticalTypography';
 import { debounce } from '@/utils/debounce';
 import { getLocale } from '@/utils/misc';
 
@@ -190,18 +191,20 @@ export function useTextTranslation(
       const translatedText = translated[0];
       if (!translatedText || text === translatedText) return;
 
-      const wrapper = document.createElement('font');
+      const doc = el.ownerDocument;
+      const xhtml = 'http://www.w3.org/1999/xhtml';
+      const wrapper = doc.createElementNS(xhtml, 'font');
       wrapper.className = `translation-target ${!enabled.current ? 'hidden' : ''}`;
       wrapper.setAttribute('translation-element-mark', '1');
       wrapper.setAttribute('lang', targetLang || getLocale());
       if (widthLineBreak) {
-        wrapper.appendChild(document.createElement('br'));
+        wrapper.appendChild(doc.createElementNS(xhtml, 'br'));
       }
 
-      const blockWrapper = document.createElement('font');
+      const blockWrapper = doc.createElementNS(xhtml, 'font');
       blockWrapper.className = `translation-target ${targetBlockClassName}`;
 
-      const inner = document.createElement('font');
+      const inner = doc.createElementNS(xhtml, 'font');
       inner.className = 'translation-target target-inner target-inner-theme-none';
       inner.textContent = translatedText;
 
@@ -212,6 +215,7 @@ export function useTextTranslation(
         return;
       }
       el.appendChild(wrapper);
+      applyVerticalTypography(inner);
       translatedElements.current.push(el);
     } catch (err) {
       console.warn('Translation failed:', err);

@@ -8,6 +8,7 @@ import { BookNote, BooknoteGroup, HighlightColor, HighlightStyle } from '@/types
 import { getWordNoteById, resolveWordNote } from '@/utils/wordNotes';
 import { NOTE_PREFIX } from '@/types/view';
 import { NativeTouchEventType } from '@/types/system';
+import type { Insets } from '@/types/misc';
 import { getLocale, getOSPlatform, makeSafeFilename, uniqueId } from '@/utils/misc';
 import { useThemeStore } from '@/store/themeStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -34,6 +35,7 @@ import { isCfiInLocation } from '@/utils/cfi';
 import { TransformContext } from '@/services/transformers/types';
 import { transformContent } from '@/services/transformService';
 import { getHighlightColorHex } from '../../utils/annotatorUtil';
+import { getTranslatorPopupLayout } from '../../utils/translatorPopupLayout';
 import { annotationToolButtons } from './AnnotationTools';
 import AnnotationRangeEditor from './AnnotationRangeEditor';
 import AnnotationPopup from './AnnotationPopup';
@@ -44,7 +46,7 @@ import useShortcuts from '@/hooks/useShortcuts';
 import ProofreadPopup from './ProofreadPopup';
 import ExportMarkdownDialog from './ExportMarkdownDialog';
 
-const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
+const Annotator: React.FC<{ bookKey: string; gridInsets: Insets }> = ({ bookKey, gridInsets }) => {
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
   const { settings, setSettingsDialogOpen, setSettingsDialogBookKey } = useSettingsStore();
@@ -76,7 +78,8 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [trianglePosition, setTrianglePosition] = useState<Position>();
   const [annotPopupPosition, setAnnotPopupPosition] = useState<Position>();
   const [dictPopupPosition, setDictPopupPosition] = useState<Position>();
-  const [translatorPopupPosition, setTranslatorPopupPosition] = useState<Position>();
+  const [translatorLayout, setTranslatorLayout] =
+    useState<ReturnType<typeof getTranslatorPopupLayout>>();
   const [proofreadPopupPosition, setProofreadPopupPosition] = useState<Position>();
   const [highlightOptionsVisible, setHighlightOptionsVisible] = useState(false);
   const [showAnnotationNotes, setShowAnnotationNotes] = useState(false);
@@ -115,9 +118,6 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const maxHeight = window.innerHeight - 2 * popupPadding;
   const dictPopupWidth = Math.min(480, maxWidth);
   const dictPopupHeight = Math.min(300, maxHeight);
-  const transPopupWidth = Math.min(480, maxWidth);
-  // 有语境释义卡片时给弹窗留出更多高度，避免上下文和译文被压扁
-  const transPopupHeight = Math.min(selectionContext ? 430 : 265, maxHeight);
   const proofreadPopupWidth = Math.min(440, maxWidth);
   const proofreadPopupHeight = Math.min(200, maxHeight);
   const annotPopupWidth = Math.min(useResponsiveSize(300), maxWidth);
@@ -149,12 +149,12 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       dictPopupHeight,
       popupPadding,
     );
-    const transPopupPos = getPopupPosition(
+    const transLayout = getTranslatorPopupLayout(
       triangPos,
       rect,
-      transPopupWidth,
-      transPopupHeight,
+      gridInsets,
       popupPadding,
+      Boolean(selectionContext),
     );
     const proofreadPopupPos = getPopupPosition(
       triangPos,
@@ -166,11 +166,21 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     if (triangPos.point.x == 0 || triangPos.point.y == 0) return;
     setAnnotPopupPosition(annotPopupPos);
     setDictPopupPosition(dictPopupPos);
-    setTranslatorPopupPosition(transPopupPos);
+    setTranslatorLayout(transLayout);
     setProofreadPopupPosition(proofreadPopupPos);
     setTrianglePosition(triangPos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, bookKey, viewSettings.vertical]);
+  }, [
+    selection,
+    bookKey,
+    viewSettings.vertical,
+    selectionContext,
+    popupPadding,
+    gridInsets.top,
+    gridInsets.right,
+    gridInsets.bottom,
+    gridInsets.left,
+  ]);
 
   useEffect(() => {
     setSelectedStyle(settings.globalReadSettings.highlightStyle);
@@ -440,6 +450,14 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   }, [bookKey, showingPopup, repositionPopups]);
 
   useEffect(() => {
+    const gridFrame = containerRef.current?.parentElement;
+    if (!showTranslatorPopup || !gridFrame) return;
+    const observer = new ResizeObserver(repositionPopups);
+    observer.observe(gridFrame);
+    return () => observer.disconnect();
+  }, [showTranslatorPopup, repositionPopups]);
+
+  useEffect(() => {
     eventDispatcher.on('export-annotations', handleExportMarkdown);
     return () => {
       eventDispatcher.off('export-annotations', handleExportMarkdown);
@@ -501,12 +519,12 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
         dictPopupHeight,
         popupPadding,
       );
-      const transPopupPos = getPopupPosition(
+      const transLayout = getTranslatorPopupLayout(
         triangPos,
         rect,
-        transPopupWidth,
-        transPopupHeight,
+        gridInsets,
         popupPadding,
+        Boolean(selectionContext),
       );
       const proofreadPopupPos = getPopupPosition(
         triangPos,
@@ -518,7 +536,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       if (triangPos.point.x == 0 || triangPos.point.y == 0) return;
       setAnnotPopupPosition(annotPopupPos);
       setDictPopupPosition(dictPopupPos);
-      setTranslatorPopupPosition(transPopupPos);
+      setTranslatorLayout(transLayout);
       setProofreadPopupPosition(proofreadPopupPos);
       setTrianglePosition(triangPos);
 
@@ -953,18 +971,21 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
           onDismiss={handleDismissPopupAndSelection}
         />
       )}
-      {showTranslatorPopup && trianglePosition && translatorPopupPosition && (
-        <TranslatorPopup
-          text={selection?.text as string}
-          context={selectionContext}
-          onConfigureAi={handleConfigureAi}
-          position={translatorPopupPosition}
-          trianglePosition={trianglePosition}
-          popupWidth={transPopupWidth}
-          popupHeight={transPopupHeight}
-          onDismiss={handleDismissPopupAndSelection}
-        />
-      )}
+      {showTranslatorPopup &&
+        translatorLayout &&
+        translatorLayout.height > 0 &&
+        translatorLayout.width > 0 && (
+          <TranslatorPopup
+            text={selection?.text as string}
+            context={selectionContext}
+            onConfigureAi={handleConfigureAi}
+            position={translatorLayout.position}
+            trianglePosition={translatorLayout.trianglePosition}
+            popupWidth={translatorLayout.width}
+            popupHeight={translatorLayout.height}
+            onDismiss={handleDismissPopupAndSelection}
+          />
+        )}
       {showAnnotPopup && trianglePosition && annotPopupPosition && (
         <AnnotationPopup
           bookKey={bookKey}

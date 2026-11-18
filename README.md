@@ -142,8 +142,8 @@ Windows 设备朗读使用系统 SAPI 音色，Android 使用系统 TTS，其他
 
 | 平台 | 安装包 |
 | --- | --- |
-| Windows x64 | [下载 .exe 安装程序](https://github.com/kiri603/KiriReadest/releases/download/v0.9.101/KiriReadest_0.9.101_x64-setup.exe) |
-| Android 7.0+（ARM64） | [下载 .apk 安装包](https://github.com/kiri603/KiriReadest/releases/download/v0.9.101/KiriReadest_0.9.101_arm64.apk) |
+| Windows x64 | [下载 .exe 安装程序](https://github.com/kiri603/KiriReadest/releases/download/v0.9.102/KiriReadest_0.9.102_x64-setup.exe) |
+| Android 7.0+（ARM64） | [下载 .apk 安装包](https://github.com/kiri603/KiriReadest/releases/download/v0.9.102/KiriReadest_0.9.102_arm64.apk) |
 
 其他平台的构建方式见下方开发说明。
 

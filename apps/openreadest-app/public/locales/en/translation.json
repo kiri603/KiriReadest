@@ -40,6 +40,7 @@
   "Any OpenAI-compatible model id works; relays may use their own names.": "Any OpenAI-compatible model id works; relays may use their own names.",
   "Testing...": "Testing...",
   "Translation with context": "Translation with context",
+  "Google Translate failed. Check your network and proxy. If you use rule mode, try global mode.": "Google Translate failed. Check your network and proxy. If you use rule mode, try global mode.",
   "Unable to read the context.": "Unable to read the context.",
   "When off, only machine translation is used.": "When off, only machine translation is used.",
   "Word note": "Word note",

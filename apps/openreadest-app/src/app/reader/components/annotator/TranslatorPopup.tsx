@@ -126,7 +126,9 @@ const TranslatorPopup: React.FC<TranslatorPopupProps> = ({
         }
       } catch (err) {
         console.error(err);
-        setError(_('Unable to fetch the translation. Try again later.'));
+        setError(
+          _('Google Translate failed. Check your network and proxy. If you use rule mode, try global mode.'),
+        );
       } finally {
         setLoading(false);
       }
@@ -205,7 +207,9 @@ const TranslatorPopup: React.FC<TranslatorPopupProps> = ({
               <p className='text-base italic text-gray-500'>{_('Loading...')}</p>
             ) : error ? (
               contextHasResult ? null : (
-                <p className='text-base text-red-600'>{error}</p>
+                <p role='alert' className='text-base text-red-600'>
+                  {error}
+                </p>
               )
             ) : (
               <p className='not-eink:text-white/90 text-base'>

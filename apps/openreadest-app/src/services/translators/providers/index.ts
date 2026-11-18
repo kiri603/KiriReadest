@@ -1,7 +1,5 @@
 import { TranslationProvider } from '../types';
-import { azureProvider } from './azure';
 import { googleProvider } from './google';
-import { yandexProvider } from './yandex';
 
 function createTranslator<T extends string>(
   name: T,
@@ -15,16 +13,8 @@ function createTranslator<T extends string>(
   return implementation as TranslationProvider & { name: T };
 }
 
-const azureTranslator = createTranslator('azure', azureProvider);
 const googleTranslator = createTranslator('google', googleProvider);
-const yandexTranslator = createTranslator('yandex', yandexProvider);
-
-const availableTranslators = [
-  azureTranslator,
-  googleTranslator,
-  yandexTranslator,
-  // Add more translators here
-];
+const availableTranslators = [googleTranslator];
 
 export type TranslatorName = (typeof availableTranslators)[number]['name'];
 

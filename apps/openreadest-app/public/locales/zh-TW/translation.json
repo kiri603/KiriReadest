@@ -152,7 +152,7 @@
   "Override Book Font": "覆蓋書籍字體",
   "Apply to All Books": "應用於所有書籍",
   "Apply to This Book": "應用於此書籍",
-  "Unable to fetch the translation. Try again later.": "無法獲取翻譯，請稍後再試。",
+  "Google Translate failed. Check your network and proxy. If you use rule mode, try global mode.": "Google 翻譯失敗。請檢查網路和代理連線。若使用規則模式，可切換到全域模式測試。",
   "Check Update": "檢查更新",
   "Already the latest version": "已經是最新版本",
   "Book Details": "書籍詳情",

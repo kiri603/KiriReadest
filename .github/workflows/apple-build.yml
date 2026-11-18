@@ -1,0 +1,99 @@
+name: Package Apple apps
+
+on:
+  push:
+    branches: [codex/apple-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: KiriReadest-macOS-universal
+          - platform: iOS
+            targets: aarch64-apple-ios
+            artifact: KiriReadest-iOS-arm64-unsigned
+    env:
+      NEXT_PUBLIC_APP_PLATFORM: tauri
+      NODE_OPTIONS: --max-old-space-size=6144
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: apple-${{ matrix.platform }}
+
+      - name: Install dependencies and prepare assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @openreadest/app setup-vendors
+
+      - name: Build and verify macOS disk image
+        if: matrix.platform == 'macOS'
+        shell: bash
+        working-directory: apps/openreadest-app
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: |
+          pnpm tauri build --target universal-apple-darwin --bundles dmg --ci
+          bundle=../../target/universal-apple-darwin/release/bundle
+          lipo -verify_arch arm64 x86_64 "$bundle/macos/KiriReadest.app/Contents/MacOS/openreadest"
+          images=("$bundle"/dmg/*.dmg)
+          [[ ${#images[@]} -eq 1 && -f "${images[0]}" ]]
+          hdiutil verify "${images[0]}"
+          mkdir -p ../../apple-packages
+          version=$(node -p 'require("./package.json").version')
+          cp "${images[0]}" "../../apple-packages/KiriReadest_${version}_macOS_universal.dmg"
+
+      - name: Build and verify unsigned iPhone package
+        if: matrix.platform == 'iOS'
+        shell: bash
+        working-directory: apps/openreadest-app
+        run: |
+          pnpm tauri ios init --ci --skip-targets-install
+          pnpm tauri ios build --target aarch64 --no-sign --ci
+          ipa=$(find src-tauri/gen/apple -type f -name '*.ipa')
+          test -f "$ipa"
+          app_dir=$(mktemp -d)
+          ditto -x -k "$ipa" "$app_dir"
+          apps=("$app_dir"/Payload/*.app)
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "${apps[0]}/Info.plist")
+          lipo -verify_arch arm64 "${apps[0]}/$executable"
+          xcrun vtool -show-build "${apps[0]}/$executable" | grep -E 'platform[[:space:]]+IOS$'
+          mkdir -p ../../apple-packages
+          version=$(node -p 'require("./package.json").version')
+          cp "$ipa" "../../apple-packages/KiriReadest_${version}_iOS_arm64_unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apple-packages/
+          if-no-files-found: error

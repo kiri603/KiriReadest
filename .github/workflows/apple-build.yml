@@ -64,7 +64,9 @@ jobs:
         run: |
           pnpm tauri build --target universal-apple-darwin --bundles app,dmg --ci
           bundle=../../target/universal-apple-darwin/release/bundle
-          lipo -verify_arch arm64 x86_64 "$bundle/macos/KiriReadest.app/Contents/MacOS/openreadest"
+          app="$bundle/macos/KiriReadest.app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo "$app/Contents/MacOS/$executable" -verify_arch arm64 x86_64
           images=("$bundle"/dmg/*.dmg)
           [[ ${#images[@]} -eq 1 && -f "${images[0]}" ]]
           hdiutil verify "${images[0]}"
@@ -86,7 +88,7 @@ jobs:
           apps=("$app_dir"/Payload/*.app)
           [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]]
           executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "${apps[0]}/Info.plist")
-          lipo -verify_arch arm64 "${apps[0]}/$executable"
+          lipo "${apps[0]}/$executable" -verify_arch arm64
           xcrun vtool -show-build "${apps[0]}/$executable" | grep -E 'platform[[:space:]]+IOS$'
           mkdir -p ../../apple-packages
           version=$(node -p 'require("./package.json").version')

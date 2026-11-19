@@ -40,6 +40,7 @@ import { getDirPath, getFilename } from '@/utils/path';
 import { NativeFile, RemoteFile } from '@/utils/file';
 import { copyURIToPath, getStorefrontRegionCode } from '@/utils/bridge';
 import { copyFiles } from '@/utils/files';
+import { md5 } from '@/utils/md5';
 
 import { BaseAppService } from './appService';
 import { DatabaseOpts, DatabaseService } from '@/types/database';
@@ -206,11 +207,9 @@ export const nativeFileSystem: FileSystem = {
   },
   async openFile(path: string, base: BaseDir, name?: string) {
     const { fp, baseDir } = this.resolvePath(path, base);
-    let fname = name || getFilename(fp);
-    if (isValidURL(path)) {
-      return await new RemoteFile(path, fname).open();
-    } else if (isContentURI(path) || (isFileURI(path) && OS_TYPE === 'ios')) {
-      fname = await basename(path);
+    const isContent = isContentURI(path);
+    if (isContent || (isFileURI(path) && OS_TYPE === 'ios')) {
+      const fname = await basename(path);
       if (path.includes('com.android.externalstorage')) {
         // If the URI is from shared internal storage (like /storage/emulated/0),
         // we can access it directly using the path — no need to copy.
@@ -220,7 +219,10 @@ export const nativeFileSystem: FileSystem = {
         // or file:// URIs is security scoped resource in iOS (e.g. from Files app),
         // we cannot access the file directly — so we copy it to a temporary cache location.
         const prefix = await this.getPrefix('Cache');
-        const dst = await join(prefix, decodeURIComponent(fname));
+        // Android providers return a literal display name. Key the cache by URI so
+        // that special characters and unrelated files with the same name stay isolated.
+        const cacheName = isContent ? `uri_${md5(path)}` : decodeURIComponent(fname);
+        const dst = await join(prefix, cacheName);
         const res = await copyURIToPath({ uri: path, dst });
         if (!res.success) {
           console.error('Failed to open file:', res);
@@ -228,6 +230,11 @@ export const nativeFileSystem: FileSystem = {
         }
         return await new NativeFile(dst, fname, baseDir ? baseDir : null).open();
       }
+    }
+
+    const fname = name || getFilename(fp);
+    if (isValidURL(path)) {
+      return await new RemoteFile(path, fname).open();
     } else if (isFileURI(path)) {
       return await new NativeFile(fp, fname, baseDir ? baseDir : null).open();
     } else {

@@ -1,6 +1,6 @@
 {
   "name": "@openreadest/app",
-  "version": "0.9.102",
+  "version": "0.9.103",
   "private": true,
   "scripts": {
     "dev": "dotenv -e .env.tauri -- next dev",

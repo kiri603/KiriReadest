@@ -58,6 +58,89 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+
+  /* 深色浮层（翻译弹窗等）里的滚动条：
+     系统默认滚动条在深色背景上是一条纯白/浅灰的方块，非常突兀。
+     轨道做成透明的（直接露出浮层自身的背景色），滑块是一根半透明的细圆角胶囊，
+     指针移入时才提亮一点点 —— "藏在背景里"，但仍看得出这里能滚动。
+
+     踩过的坑：daisyUI 的基础层给所有元素写了
+       * { scrollbar-color: color-mix(in oklch, currentColor 35%, transparent) transparent }
+     Chromium 121+ 只要元素上出现了 scrollbar-width / scrollbar-color（哪怕值来自 * 继承），
+     就会整体放弃 ::-webkit-scrollbar 系列伪元素，退回系统经典滚动条 —— 于是深色浮层里
+     就出现那条刺眼的浅色方块。所以这里先用 @supports selector(::-webkit-scrollbar)
+     把两个标准属性复位成 auto（显式 auto 不会触发降级），让伪元素规则重新生效；
+     Firefox 没有伪元素，才走标准属性的那一条分支。 */
+  @supports selector(::-webkit-scrollbar) {
+    .scrollbar-subtle {
+      scrollbar-width: auto;
+      scrollbar-color: auto;
+    }
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-subtle::-webkit-scrollbar-track,
+  .scrollbar-subtle::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* 3px 透明边框 + background-clip: padding-box => 滑块只占 4px，两侧留白像悬浮胶囊。
+     颜色跟着文字色（currentColor）走并压低到 18%，深色浮层里是"背景灰上的一条淡白"，
+     浅色浮层里则自动变成淡灰，同一套规则深浅主题都不突兀。
+     先用不依赖 color-mix 的值兜底，再用 color-mix 覆盖（老浏览器忽略第二行即可）。 */
+  .scrollbar-subtle::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-color: rgb(255 255 255 / 0.18);
+    background-color: color-mix(in srgb, currentColor 20%, transparent);
+    background-clip: padding-box;
+  }
+
+  /* 鼠标进入滚动区域时才稍微亮一点，平时几乎看不见 */
+  .scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.28);
+    background-color: color-mix(in srgb, currentColor 32%, transparent);
+  }
+
+  /* 指针正压在滑块上时最清楚，方便拖动 */
+  .scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.42);
+    background-color: color-mix(in srgb, currentColor 45%, transparent);
+  }
+
+  /* Windows 经典滚动条两端的箭头按钮，深色浮层里同样要去掉 */
+  .scrollbar-subtle::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* Firefox / 无伪元素滚动的内核：走标准属性，同样让滑块跟着文字色走 */
+  @supports not selector(::-webkit-scrollbar) {
+    .scrollbar-subtle {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, currentColor 30%, transparent) transparent;
+    }
+  }
+
+  /* 完全不画滚动条，滚轮 / 触摸板照样能滚。
+     专门给「嵌套滚动」用：外层已经有一根细滚动条时，内层再画一根就变成
+     并排两条轨道，很脏。scrollbar-width: none 本身就能让 Chromium 不画，
+     伪元素那条留给不支持标准属性的老内核。 */
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
 }
 
 .full-height {

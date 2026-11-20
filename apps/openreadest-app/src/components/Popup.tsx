@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { Position } from '@/utils/sel';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
 
@@ -77,17 +77,48 @@ const Popup = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState(position);
   const [childrenHeight, setChildrenHeight] = useState(height || minHeight || 0);
+  // position/trianglePosition 是相对定位祖先（阅读区域的 grid cell）的坐标，
+  // 而窗口高度是视口坐标。两者混用会让「下方」弹窗的可用高度多算一个工具栏的高度，
+  // 弹窗于是撑出窗口底部被裁掉。这里量出定位祖先在视口中的位置，统一到它的坐标系里算。
+  const [offsetRect, setOffsetRect] = useState({ top: 0, height: 0 });
 
   useKeyDownActions({ onCancel: onDismiss, elementRef: containerRef, enabled: isOpen });
 
   const popupPadding = useResponsiveSize(10);
-  let availableHeight = window.innerHeight - 2 * popupPadding;
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const offsetParent = container.offsetParent as HTMLElement | null;
+      const rect = (offsetParent ?? document.documentElement).getBoundingClientRect();
+      // 定位祖先可能比视口更高（滚动布局），可见区域只到窗口底部
+      const height = Math.min(rect.bottom, window.innerHeight) - rect.top;
+      const next = { top: rect.top, height: Math.max(height, 0) };
+      setOffsetRect((prev) => (prev.top === next.top && prev.height === next.height ? prev : next));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [position, trianglePosition]);
+
+  const anchorY = trianglePosition?.point.y ?? 0;
+  // offsetRect.height 为 0 表示还没量到（或者没有定位祖先），退回到整窗高度
+  const boundingHeight = offsetRect.height || window.innerHeight - offsetRect.top;
+  let availableHeight = boundingHeight - 2 * popupPadding;
   if (trianglePosition?.dir === 'up') {
-    availableHeight = trianglePosition.point.y - popupPadding;
+    // 弹窗在选区上方展开，可用空间是选区上沿到阅读区域顶部的距离
+    availableHeight = anchorY - popupPadding;
   } else if (trianglePosition?.dir === 'down') {
-    availableHeight = window.innerHeight - trianglePosition.point.y - popupPadding;
+    // 弹窗在选区下方展开，可用空间是选区下沿到可见区域底部的距离
+    availableHeight = boundingHeight - anchorY - popupPadding;
   }
-  maxHeight = Math.min(maxHeight || availableHeight, availableHeight);
+  // 选区贴着窗口边缘时可用空间可能趋近于 0，留一个下限，避免弹窗被压成一条缝
+  // （至少留出「标题栏 + 一行内容 + 底部工具条」的高度，否则 footer 会被裁掉一半）
+  const boundedAvailableHeight = Math.max(availableHeight, popupPadding * 16);
+  const boundedMaxHeight = Math.min(maxHeight || boundedAvailableHeight, boundedAvailableHeight);
+  // min-height 一旦大于 max-height，CSS 会让 min-height 生效，弹窗就会撑出窗口被裁掉
+  const boundedMinHeight = minHeight ? Math.min(minHeight, boundedMaxHeight) : undefined;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -110,20 +141,42 @@ const Popup = ({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    if (!position || !trianglePosition || position.dir !== 'up') {
+    if (!position || !trianglePosition) {
       setAdjustedPosition(position);
       return;
     }
-    const containerHeight = childrenHeight || containerRef.current.offsetHeight;
-    const newPosition = {
-      ...position,
-      point: {
-        ...position.point,
-        y: Math.max(popupPadding, trianglePosition.point.y - containerHeight),
-      },
-    };
-    setAdjustedPosition(newPosition);
-  }, [position, trianglePosition, popupPadding, childrenHeight]);
+    // 还没量到内容高度时沿用调用方给的估算位置（getPopupPosition 已按估算高度摆好），
+    // 否则第一帧会拿 0 当高度、把「向上」的弹窗整个压到选区下方闪一下。
+    const containerHeight = childrenHeight || 0;
+    if (!containerHeight) {
+      setAdjustedPosition(position);
+      return;
+    }
+    if (position.dir === 'up') {
+      const newPosition = {
+        ...position,
+        point: {
+          ...position.point,
+          y: Math.max(popupPadding, trianglePosition.point.y - containerHeight),
+        },
+      };
+      setAdjustedPosition(newPosition);
+    } else if (position.dir === 'down') {
+      // 下方弹窗内容变高（例如 AI 释义异步返回）时会越过窗口底部，
+      // 这里按实测高度把弹窗整体上移，保证底边不超出可见区域。
+      // 注意不能直接用 position.point.y：getPopupPosition 是按「估算高度」预先摆的，
+      // 空间不足时它会先把弹窗往上推到压住选区；拿到实测高度后要重新贴回选区下方。
+      const maxY = boundingHeight - popupPadding - containerHeight;
+      const desiredY = Math.max(position.point.y, anchorY);
+      const newPosition = {
+        ...position,
+        point: { ...position.point, y: Math.max(popupPadding, Math.min(desiredY, maxY)) },
+      };
+      setAdjustedPosition(newPosition);
+    } else {
+      setAdjustedPosition(position);
+    }
+  }, [position, trianglePosition, popupPadding, childrenHeight, boundingHeight, anchorY]);
 
   const outerTriangleStyles = getTriangleStyles(trianglePosition, 7, 0);
   const innerTriangleStyles = getTriangleStyles(trianglePosition, 7, -1);
@@ -145,9 +198,9 @@ const Popup = ({
         )}
         style={{
           width: `${width}px`,
-          height: height ? `${height}px` : 'auto',
-          minHeight: minHeight ? `${minHeight}px` : 'none',
-          maxHeight: maxHeight ? `${maxHeight}px` : 'none',
+          height: height ? `${Math.min(height, boundedMaxHeight)}px` : 'auto',
+          minHeight: boundedMinHeight ? `${boundedMinHeight}px` : 'none',
+          maxHeight: `${boundedMaxHeight}px`,
           left: `${adjustedPosition ? adjustedPosition.point.x : -999}px`,
           top: `${adjustedPosition ? adjustedPosition.point.y : -999}px`,
           ...additionalStyle,

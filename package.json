@@ -1,7 +1,6 @@
 {
   "name": "@openreadest/monorepo",
   "private": true,
-  "packageManager": "pnpm@10.14.0",
   "repository": "kiri603/KiriReadest",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

@@ -234,10 +234,13 @@ export class TTSController extends EventTarget {
         await this.preloadSSML(ssml, signal);
         const iter = await this.ttsClient.speak(ssml, signal);
         let lastCode;
-        for await (const { code } of iter) {
+        for await (const { code, message } of iter) {
           if (signal.aborted) {
             resolve();
             return;
+          }
+          if (code === 'error') {
+            throw new Error(message || 'TTS playback failed');
           }
           lastCode = code;
         }
@@ -261,7 +264,11 @@ export class TTSController extends EventTarget {
       }
     });
 
-    await this.#currentSpeakPromise.catch((e) => this.error(e));
+    await this.#currentSpeakPromise.catch((error) => {
+      console.error(error);
+      this.state = 'stop-paused';
+      this.dispatchEvent(new Event('tts-playback-error'));
+    });
   }
 
   async speak(ssml: string | Promise<string>, oneTime = false) {

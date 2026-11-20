@@ -10,6 +10,7 @@ export type TTSVoice = {
   name: string;
   lang: string;
   disabled?: boolean;
+  offline?: boolean;
 };
 
 export type TTSVoicesGroup = {

@@ -7,6 +7,19 @@ import '../styles/globals.css';
 const title = 'KiriReadest';
 const description = 'KiriReadest ebook reader';
 
+// Tauri's Android development proxy handles HTTP but does not upgrade WebSockets.
+const androidDevHmrScript = `
+  window.WebSocket = class extends window.WebSocket {
+    constructor(url, protocols) {
+      const endpoint = new URL(url, location.href);
+      if (endpoint.origin === 'ws://tauri.localhost' && endpoint.pathname === '/_next/webpack-hmr') {
+        url = 'ws://127.0.0.1:3000' + endpoint.pathname + endpoint.search;
+      }
+      super(url, protocols);
+    }
+  };
+`;
+
 export const metadata = {
   title,
   description,
@@ -35,6 +48,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? 'edge-to-edge' : ''}
     >
       <head>
+        {process.env.NODE_ENV === 'development' && process.env['KIRI_ANDROID_USB_DEV'] === '1' && (
+          <script dangerouslySetInnerHTML={{ __html: androidDevHmrScript }} />
+        )}
         <title>{title}</title>
         <meta
           name='viewport'

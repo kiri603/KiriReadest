@@ -36,6 +36,8 @@ const TTSEngines = {
   aispeech: 'Aispeech',
 } as Record<string, string>;
 
+const MAX_AUTOMATIC_VOICE_ATTEMPTS = 3;
+
 export class NativeTTSClient implements TTSClient {
   name = 'native-tts';
   initialized = false;
@@ -47,6 +49,7 @@ export class NativeTTSClient implements TTSClient {
   #currentVoiceId = '';
   #rate = 1.0;
   #pitch = 1.0;
+  #workingVoices = new Map<string, string>();
 
   #eventListener: PluginListener | UnlistenFn | null = null;
   #starting = false;
@@ -105,13 +108,28 @@ export class NativeTTSClient implements TTSClient {
       return;
     }
     if (signal.aborted) return;
-    const { language: voiceLang } = mark;
-    const voiceId = await this.getVoiceIdFromLang(voiceLang);
-    if (this.windowsNative && !voiceId) {
-      throw new Error(`No installed Windows voice for ${voiceLang}`);
+    const { language } = mark;
+    const voiceIds = await this.#getVoiceCandidates(language);
+    if (this.windowsNative && !voiceIds[0]) {
+      throw new Error(`No installed Windows voice for ${language}`);
     }
-    this.#currentVoiceId = voiceId;
-    this.#speakingLang = voiceLang;
+    this.#speakingLang = language;
+    for (const [index, voiceId] of voiceIds.entries()) {
+      if (signal.aborted) return;
+      let started = false;
+      for await (const event of this.#speakWithVoice(mark, voiceId, signal)) {
+        if (event.code === 'boundary') started = true;
+        if (event.code === 'error' && !started && index + 1 < voiceIds.length) break;
+        if (event.code === 'end' && voiceIds.length > 1) {
+          this.#workingVoices.set(language, voiceId);
+        }
+        yield event;
+        if (event.code === 'end' || event.code === 'error') return;
+      }
+    }
+  }
+
+  async *#speakWithVoice(mark: TTSMark, voiceId: string, signal: AbortSignal) {
     await this.setVoice(voiceId);
     let utteranceId = crypto.randomUUID();
     const data = {
@@ -128,7 +146,7 @@ export class NativeTTSClient implements TTSClient {
       if (signal.aborted) return;
       this.#starting = true;
       const result = await invoke<{ utteranceId: string }>('plugin:native-tts|speak', {
-        payload: { text: mark.text, preload, utteranceId },
+        payload: { text: mark.text, preload: false, utteranceId },
       });
       if (result.utteranceId !== utteranceId) {
         this.#activeUtterances.delete(utteranceId);
@@ -174,13 +192,29 @@ export class NativeTTSClient implements TTSClient {
     }
   }
 
-  async getVoiceIdFromLang(lang: string) {
+  async #getVoiceCandidates(lang: string) {
     const preferredVoiceId = TTSUtils.getPreferredVoice(this.name, lang);
-    const preferredVoice = this.#voices.find((v) => v.id === preferredVoiceId);
-    const defaultVoice = preferredVoice
-      ? preferredVoice
-      : (await this.getVoices(lang))[0]?.voices[0] || null;
-    return defaultVoice?.id || '';
+    const voices = await this.getAllVoices();
+    const preferredVoice = voices.find((voice) => voice.id === preferredVoiceId);
+    if (preferredVoice) return [preferredVoice.id];
+
+    const groups = await this.getVoices(lang);
+    const defaultVoiceId = groups[0]?.voices[0]?.id ?? '';
+    if (this.windowsNative) return [defaultVoiceId];
+
+    const offlineIds = groups.flatMap((group) =>
+      group.voices.filter((voice) => voice.offline && !voice.disabled).map((voice) => voice.id),
+    );
+    if (offlineIds.length === 0) return [defaultVoiceId];
+
+    const workingId = this.#workingVoices.get(lang);
+    if (workingId && offlineIds.includes(workingId)) {
+      return [workingId, ...offlineIds.filter((id) => id !== workingId)].slice(
+        0,
+        MAX_AUTOMATIC_VOICE_ATTEMPTS,
+      );
+    }
+    return offlineIds.slice(0, MAX_AUTOMATIC_VOICE_ATTEMPTS);
   }
 
   async pause() {

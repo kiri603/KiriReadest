@@ -15,6 +15,8 @@ name = "readestlib"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
 # Internal feature to suppress warnings from old objc crate
 cargo-clippy = []
 
@@ -36,7 +38,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "stream",
 ] }
-tauri = { version = "2", features = [ "protocol-asset", "custom-protocol" ] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-build = "2"
 tauri-plugin-log = "2"
 tauri-plugin-fs = "2"

@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NativeTTSClient } from '@/services/tts/NativeTTSClient';
 import { TTSController } from '@/services/tts/TTSController';
+import { TTSUtils } from '@/services/tts/TTSUtils';
 import type { AppService } from '@/types/system';
 import type { FoliateView } from '@/types/view';
 
 const native = vi.hoisted(() => ({
   invoke: vi.fn(),
   listener: null as null | ((event: { payload: Record<string, unknown> }) => void),
+  mobileListener: null as null | ((event: Record<string, unknown>) => void),
 }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: native.invoke,
-  addPluginListener: vi.fn(),
+  addPluginListener: vi.fn(async (_plugin, _event, listener) => {
+    native.mobileListener = listener;
+    return { unregister: vi.fn() };
+  }),
 }));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (_name, listener) => {
@@ -28,6 +33,7 @@ vi.mock('@/libs/edgeTTS', () => ({
 beforeEach(() => {
   localStorage.clear();
   native.listener = null;
+  native.mobileListener = null;
   native.invoke.mockReset().mockImplementation(async (command, args) => {
     if (command.endsWith('|init')) return { success: true };
     if (command.endsWith('|get_all_voices')) {
@@ -40,6 +46,118 @@ beforeEach(() => {
       return { utteranceId };
     }
     return undefined;
+  });
+});
+
+describe('Android native speech', () => {
+  beforeEach(() => {
+    native.invoke.mockImplementation(async (command) => {
+      if (command.endsWith('|init')) return { success: true };
+      if (command.endsWith('|get_all_voices')) {
+        return {
+          voices: [
+            { id: 'pending', name: 'A (downloading)', lang: 'zh-CN', offline: false },
+            { id: 'online', name: 'B (online)', lang: 'zh-CN', offline: false },
+            { id: 'installed', name: 'C (offline)', lang: 'zh-CN', offline: true },
+          ],
+        };
+      }
+      if (command.endsWith('|speak')) {
+        const utteranceId = 'android-utterance';
+        native.mobileListener?.({ utteranceId, code: 'end' });
+        return { utteranceId };
+      }
+      return undefined;
+    });
+  });
+
+  it.each([
+    [undefined, 'installed'],
+    ['online', 'online'],
+  ])('selects the expected voice given preference %s', async (preferredVoice, expectedVoice) => {
+    if (preferredVoice) TTSUtils.setPreferredVoice('native-tts', 'zh', preferredVoice);
+    const client = new NativeTTSClient();
+    await client.init();
+    const events = [];
+    for await (const event of client.speakMark(
+      { text: '你好', name: 'short', language: 'zh', offset: 0 },
+      false,
+      new AbortController().signal,
+    )) {
+      events.push(event);
+    }
+    expect(client.getVoiceId()).toBe(expectedVoice);
+    expect(events).toEqual([{ code: 'end', mark: 'short' }]);
+  });
+
+  it.each(['automatic', 'preferred', 'started'])(
+    'retries only unplayed speech using automatic voice selection (%s)',
+    async (mode) => {
+      const mark = { text: '你好', name: 'short', language: 'zh', offset: 0 };
+      let selected = '';
+      const attempted: string[] = [];
+      const invoke = native.invoke.getMockImplementation()!;
+      native.invoke.mockImplementation(async (command, args) => {
+        if (command.endsWith('|get_all_voices')) {
+          return {
+            voices: [
+              { id: 'failing', name: 'A', lang: 'zh-CN', offline: true },
+              { id: 'working', name: 'B', lang: 'zh-CN', offline: true },
+            ],
+          };
+        }
+        if (command.endsWith('|set_voice')) selected = args.payload.voice;
+        if (command.endsWith('|speak')) {
+          attempted.push(selected);
+          const utteranceId = args.payload.utteranceId;
+          if (mode === 'started') native.mobileListener?.({ utteranceId, code: 'boundary' });
+          native.mobileListener?.({ utteranceId, code: selected === 'failing' ? 'error' : 'end' });
+          return { utteranceId };
+        }
+        return invoke(command, args);
+      });
+      if (mode === 'preferred') TTSUtils.setPreferredVoice('native-tts', 'zh', 'failing');
+      const client = new NativeTTSClient();
+      await client.init();
+
+      const events = [];
+      for await (const event of client.speakMark(mark, false, new AbortController().signal)) {
+        events.push(event.code);
+      }
+      if (mode === 'automatic') {
+        expect(events).toEqual(['end']);
+        for await (const _event of client.speakMark(mark, false, new AbortController().signal)) {
+          // The next sentence should reuse the working voice.
+        }
+        expect(attempted).toEqual(['failing', 'working', 'working']);
+      } else {
+        expect(events).toEqual(mode === 'started' ? ['boundary', 'error'] : ['error']);
+        expect(attempted).toEqual(['failing']);
+      }
+    },
+  );
+
+  it('leaves playback paused when the Android engine reports a synthesis error', async () => {
+    const invoke = native.invoke.getMockImplementation()!;
+    native.invoke.mockImplementation(async (command, args) => {
+      if (command.endsWith('|speak')) {
+        const utteranceId = args.payload.utteranceId;
+        native.mobileListener?.({ utteranceId, code: 'error', message: 'Synthesis timed out' });
+        return { utteranceId };
+      }
+      return invoke(command, args);
+    });
+    const controller = new TTSController({ isAndroidApp: true } as AppService, {} as FoliateView);
+    vi.spyOn(controller, 'initViewTTS').mockResolvedValue(undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await controller.init();
+    const playbackError = vi.fn();
+    controller.addEventListener('tts-playback-error', playbackError);
+    await controller.speak('<speak xml:lang="zh"><mark name="a"/>你好。</speak>');
+
+    await vi.waitFor(() => expect(playbackError).toHaveBeenCalledOnce());
+    expect(controller.state).toBe('stop-paused');
+    vi.restoreAllMocks();
   });
 });
 

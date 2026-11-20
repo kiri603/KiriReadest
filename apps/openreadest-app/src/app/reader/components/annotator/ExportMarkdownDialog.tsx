@@ -594,7 +594,7 @@ const ExportMarkdownDialog: React.FC<ExportMarkdownDialogProps> = ({
           {showSource ? (
             <div
               className={clsx(
-                'bg-base-200 max-h-[40vh] overflow-y-auto rounded-lg p-4 font-mono text-xs',
+                'scrollbar-subtle bg-base-200 max-h-[40vh] overflow-y-auto rounded-lg p-4 font-mono text-xs',
                 'select-text whitespace-pre-wrap break-words',
               )}
             >
@@ -603,7 +603,7 @@ const ExportMarkdownDialog: React.FC<ExportMarkdownDialogProps> = ({
           ) : (
             <div
               className={clsx(
-                'bg-base-200 prose prose-sm max-w-none overflow-y-auto rounded-lg p-4',
+                'scrollbar-subtle bg-base-200 prose prose-sm max-w-none overflow-y-auto rounded-lg p-4',
                 'max-h-[40vh] select-text break-words',
               )}
               dangerouslySetInnerHTML={{

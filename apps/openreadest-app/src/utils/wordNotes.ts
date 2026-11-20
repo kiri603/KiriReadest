@@ -58,6 +58,9 @@ const CJK_CHARACTERS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{
 
 const WORD_PATTERN = /[\p{L}\p{N}\p{M}]+(?:['’\-‐‑][\p{L}\p{N}\p{M}]+)*/gu;
 
+// Whitespace that only exists because of line breaks and indentation in the markup.
+const LAYOUT_WHITESPACE = /[\t\n\f\r ]/;
+
 export const normalizeWord = (text: string): string => {
   const word = text.trim().normalize('NFKC').replace(/’/g, "'").replace(/[‐‑]/g, '-').toLowerCase();
   return /^[\p{L}\p{N}\p{M}]+(?:['-][\p{L}\p{N}\p{M}]+)*$/u.test(word) && /\p{L}/u.test(word)
@@ -109,7 +112,9 @@ export const findWordNoteRanges = (doc: Document, notes: WordNote[]): WordNoteMa
     acceptNode: (node) => {
       const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
       if (
-        element?.closest('script, style, noscript, textarea, rt, [hidden], [aria-hidden="true"]')
+        element?.closest(
+          'script, style, noscript, textarea, rt, rp, rtc, [hidden], [aria-hidden="true"]',
+        )
       ) {
         return NodeFilter.FILTER_REJECT;
       }
@@ -134,20 +139,74 @@ export const findWordNoteRanges = (doc: Document, notes: WordNote[]): WordNoteMa
     groups[groups.length - 1]!.push(node as Text);
   }
   for (const nodes of groups) {
-    const text = nodes.map((node) => node.data).join('');
     const offsets: number[] = [];
     let length = 0;
     for (const node of nodes) {
       offsets.push(length);
       length += node.length;
     }
+    // Ruby markup spreads a single Japanese word across several text nodes and
+    // leaves indentation between them, so CJK matching runs on a view of the
+    // group with that indentation removed. Latin words keep their separating
+    // whitespace collapsed to one space, and a space the author really typed
+    // between two ruby bases still separates them instead of joining a word.
+    const chars: { char: string; start: number; end: number }[] = [];
+    for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+      const data = nodes[nodeIndex]!.data;
+      for (let i = 0; i < data.length; i++) {
+        const start = offsets[nodeIndex]! + i;
+        chars.push({ char: data[i]!, start, end: start + 1 });
+      }
+    }
+    const latinChars: string[] = [];
+    const latinStarts: number[] = [];
+    const latinEnds: number[] = [];
+    const cjkChars: string[] = [];
+    const cjkStarts: number[] = [];
+    const cjkEnds: number[] = [];
+    for (let at = 0; at < chars.length; at++) {
+      const entry = chars[at]!;
+      if (LAYOUT_WHITESPACE.test(entry.char)) {
+        let end = entry.end;
+        let isLayout = entry.char !== ' ';
+        while (at + 1 < chars.length && LAYOUT_WHITESPACE.test(chars[at + 1]!.char)) {
+          at++;
+          const next = chars[at]!;
+          if (next.char !== ' ') isLayout = true;
+          end = next.end;
+        }
+        latinChars.push(' ');
+        latinStarts.push(entry.start);
+        latinEnds.push(end);
+        if (!isLayout) {
+          cjkChars.push(' ');
+          cjkStarts.push(entry.start);
+          cjkEnds.push(end);
+        }
+        continue;
+      }
+      latinChars.push(entry.char);
+      latinStarts.push(entry.start);
+      latinEnds.push(entry.end);
+      cjkChars.push(entry.char);
+      cjkStarts.push(entry.start);
+      cjkEnds.push(entry.end);
+    }
+    const latin = latinChars.join('');
+    const cjk = cjkChars.join('');
     const candidates: { note: WordNote; start: number; end: number }[] = [];
     // CJK sentences have no spaces. Keep Latin word boundaries without treating
     // adjacent kana/kanji as part of an English word.
-    const latinText = text.replace(CJK_CHARACTERS, (char) => ' '.repeat(char.length));
+    const latinText = latin.replace(CJK_CHARACTERS, (char) => ' '.repeat(char.length));
     for (const match of latinText.matchAll(WORD_PATTERN)) {
       const note = index.get(normalizeWord(match[0]));
-      if (note) candidates.push({ note, start: match.index, end: match.index + match[0].length });
+      if (note) {
+        candidates.push({
+          note,
+          start: latinStarts[match.index]!,
+          end: latinEnds[match.index + match[0].length - 1]!,
+        });
+      }
     }
     if (cjkNotes.length) {
       let normalized = '';
@@ -156,8 +215,8 @@ export const findWordNoteRanges = (doc: Document, notes: WordNote[]): WordNoteMa
       let fallbackOffset = 0;
       const segments =
         typeof Intl.Segmenter === 'function'
-          ? new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)
-          : Array.from(text).map((segment) => {
+          ? new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(cjk)
+          : Array.from(cjk).map((segment) => {
               const index = fallbackOffset;
               fallbackOffset += segment.length;
               return { segment, index };
@@ -170,8 +229,8 @@ export const findWordNoteRanges = (doc: Document, notes: WordNote[]): WordNoteMa
           .replace(/[‐‑]/g, '-');
         normalized += value;
         for (let i = 0; i < value.length; i++) {
-          starts.push(offset);
-          ends.push(offset + segment.length);
+          starts.push(cjkStarts[offset]!);
+          ends.push(cjkEnds[offset + segment.length - 1]!);
         }
       }
       for (const note of cjkNotes) {

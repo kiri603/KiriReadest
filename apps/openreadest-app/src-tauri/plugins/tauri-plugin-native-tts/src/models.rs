@@ -8,6 +8,8 @@ pub struct TTSVoice {
     pub lang: String,
     #[serde(default)]
     pub disabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offline: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

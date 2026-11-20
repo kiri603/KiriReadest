@@ -58,7 +58,7 @@ const AnnotationNotes: React.FC<AnnotationNotesProps> = ({
 
   return (
     <div
-      className={clsx('annotation-notes absolute flex rounded-lg text-white')}
+      className={clsx('annotation-notes scrollbar-subtle absolute flex rounded-lg text-white')}
       style={{
         ...(isVertical
           ? {
@@ -75,7 +75,6 @@ const AnnotationNotes: React.FC<AnnotationNotesProps> = ({
               maxHeight: `${maxSize}px`,
               overflowY: 'auto',
             }),
-        scrollbarWidth: 'thin',
       }}
     >
       <div

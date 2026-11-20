@@ -87,6 +87,11 @@ export class Overlayer {
             NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
                 acceptNode: node => {
                     if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT
+                    // Ruby annotations are pronunciation, not part of the text:
+                    // drawing over them would put marks on the furigana.
+                    if (node.nodeType === Node.ELEMENT_NODE
+                        && node.matches?.('rt, rp, rtc'))
+                        return NodeFilter.FILTER_REJECT
                     if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT
                     return node.matches?.('img, svg')
                         ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP

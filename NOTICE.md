@@ -38,11 +38,6 @@ KiriReadest modifications:
   reading-progress synchronization fixes. Introduced KiriReadest branding and
   project links, removed inherited donation entries, and rewrote the README.
 - Readest and OpenReadest copyright notices remain in force for inherited code.
-- 2026-11-18: Published a reviewed source snapshot based on OpenReadest commit
-  c4378e5e2fd72b7853fd4582b9e0d38284aa5974 and local KiriReadest modifications.
-  Excluded private build material, local tooling, and inherited promotional
-  images. Replaced the tracked environment file with a public example, removed
-  the inherited Apple signing-team identifier, and made package publishing manual.
 - Distributors must provide the Corresponding Source required by AGPL-3.0,
   including the materials needed to build the distributed version. Modified
   network-interactive versions must also satisfy the license source-offer terms.

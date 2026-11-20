@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findWordNoteRanges, normalizeWord, upsertWordNote } from '@/utils/wordNotes';
+import { getTextFromRange } from '@/utils/sel';
 import type { WordNote } from '@/types/book';
 
 const note: WordNote = {
@@ -98,6 +99,32 @@ describe('word notes', () => {
       '小麦色',
       'Read',
     ]);
+  });
+
+  it('matches a word whose ruby bases are separated by markup whitespace', () => {
+    // Real Japanese EPUB markup puts each base character in its own <rb> with
+    // newlines and indentation around it, so the extracted text would otherwise
+    // read "素\n    \n      麺" and the shared entry would never mark the word.
+    const book = doc(
+      '<p>「遠慮しないで。いただきものの<ruby>\n    <rb>\n      素\n    </rb><rt>そう</rt></ruby>' +
+        '<ruby>\n    <rb>\n      麺\n    </rb><rt>めん</rt></ruby>があるから」</p>' +
+        '<p>「素麺──」</p>',
+    );
+    const shared = { ...note, word: '素麺' };
+    const matches = findWordNoteRanges(book, [shared]);
+    // The range must stay on the kanji so the overlay does not mark the furigana.
+    expect(matches.map(({ range }) => getTextFromRange(range).replace(/\s/gu, ''))).toEqual([
+      '素麺',
+      '素麺',
+    ]);
+  });
+
+  it('keeps a space the author typed between two ruby bases', () => {
+    const book = doc(
+      '<p><ruby><rb>素</rb><rt>そ</rt></ruby> <ruby><rb>麺</rb><rt>めん</rt></ruby></p>',
+    );
+    const shared = { ...note, word: '素麺' };
+    expect(findWordNoteRanges(book, [shared])).toEqual([]);
   });
 
   it('normalizes halfwidth kana while preserving the original DOM range', () => {

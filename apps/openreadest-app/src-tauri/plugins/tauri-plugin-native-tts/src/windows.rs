@@ -152,7 +152,7 @@ impl SpeechEngine {
                 let length = LCIDToLocaleName(lcid, Some(&mut locale), 0);
                 if length <= 1 { continue; }
                 let lang = String::from_utf16_lossy(&locale[..length as usize - 1]);
-                voices.push((TTSVoice { id, name, lang, disabled: false }, token));
+                voices.push((TTSVoice { id, name, lang, disabled: false, offline: None }, token));
             }
             Ok(Self { voice, voices, active: None, paused: false, pitch: 1.0, emit })
         }

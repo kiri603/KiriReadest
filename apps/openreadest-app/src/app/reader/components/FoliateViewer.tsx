@@ -56,7 +56,6 @@ import { useDiscordPresence } from '@/hooks/useDiscordPresence';
 import { manageSyntaxHighlighting } from '@/utils/highlightjs';
 import { getViewInsets } from '@/utils/insets';
 import { removeTabIndex } from '@/utils/a11y';
-import { applyVerticalTypography } from '@/utils/verticalTypography';
 import { isCJKLang } from '@/utils/lang';
 import { getLocale } from '@/utils/misc';
 import Spinner from '@/components/Spinner';
@@ -223,9 +222,6 @@ const FoliateViewer: React.FC<{
       applyScrollModeClass(detail.doc, viewSettings.scrolled || false);
       keepTextAlignment(detail.doc);
       removeTabIndex(detail.doc);
-      if (writingDir?.vertical && !bookData?.isFixedLayout && detail.doc.body) {
-        applyVerticalTypography(detail.doc.body);
-      }
 
       // Inline scripts in tauri platforms are not executed by default
       if (viewSettings.allowScript && isTauriAppPlatform()) {

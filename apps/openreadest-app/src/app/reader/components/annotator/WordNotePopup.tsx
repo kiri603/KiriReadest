@@ -64,7 +64,7 @@ const WordNotePopup = ({
       position={position}
       trianglePosition={trianglePosition}
       onDismiss={onDismiss}
-      className='bg-base-100 text-base-content overflow-y-auto p-4'
+      className='scrollbar-subtle bg-base-100 text-base-content overflow-y-auto p-4'
     >
       <div ref={dialogRef} tabIndex={-1} role='dialog' aria-label={_('Word note for all books')}>
         <div className='mb-2 flex items-center justify-between gap-2'>

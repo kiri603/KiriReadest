@@ -72,6 +72,14 @@ export const DEFAULT_AI_TRANSLATION_SETTINGS: AiTranslationSettings = {
   model: 'deepseek-chat',
 };
 
+/**
+ * AI 请求的默认输出预算与超时。
+ * 推理型模型会把思考 token 也算进 max_tokens，600 在复杂句子上容易被思考吃满而返回空正文，
+ * 所以这两个值在设置里开放给用户改（见 AiTranslationPanel）。
+ */
+export const DEFAULT_AI_MAX_TOKENS = 600;
+export const DEFAULT_AI_TIMEOUT_MS = 20000;
+
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   aiTranslation: DEFAULT_AI_TRANSLATION_SETTINGS,
   keepLogin: false,

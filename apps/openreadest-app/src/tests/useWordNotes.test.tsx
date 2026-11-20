@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import type { WordNote } from '@/types/book';
 import type { FoliateView } from '@/types/view';
 import { useWordNotes } from '@/app/reader/hooks/useWordNotes';
+import { getTextFromRange } from '@/utils/sel';
 
 vi.mock('foliate-js/overlayer.js', () => ({ Overlayer: { underline: () => {} } }));
 afterEach(cleanup);
@@ -83,6 +84,31 @@ describe('automatic word note overlays', () => {
       view.dispatchEvent(new CustomEvent('relocate'));
     });
     expect(b.marks.size).toBe(2);
+  });
+
+  it('marks a ruby-annotated word and opens its note when clicked', () => {
+    const a = book(
+      '<p>「<ruby>\n    <rb>\n      素\n    </rb><rt>そう</rt></ruby>' +
+        '<ruby>\n    <rb>\n      麺\n    </rb><rt>めん</rt></ruby>」</p>',
+    );
+    const shared: WordNote = {
+      id: 'ruby',
+      word: '素麺',
+      note: 'そうめん',
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const { view } = reader([a]);
+    const show = vi.fn();
+    renderHook(() => useWordNotes(view, [shared], show));
+    const [value, range] = [...a.marks.entries()][0]!;
+    expect(getTextFromRange(range)).toBe('素麺');
+    act(() => {
+      view.dispatchEvent(
+        new CustomEvent('show-annotation', { detail: { value, range, index: 0 } }),
+      );
+    });
+    expect(show).toHaveBeenCalledWith(shared, range, 0);
   });
 
   it('shows the word note when an existing book highlight overlaps the same word', () => {

@@ -48,8 +48,15 @@ export interface KOSyncSettings {
 }
 
 /**
- * 语境释义用的 AI 配置（OpenAI 兼容接口）。
- * 不限定厂商：DeepSeek / Kimi / 硅基流动 / OpenAI / 本地 Ollama 都填这里。
+ * 接口协议：openai = /chat/completions，anthropic = /v1/messages。
+ * 两者请求头、body 结构与回复结构都不同，所以在配置里显式区分。
+ */
+export type AiProtocol = 'openai' | 'anthropic';
+
+/**
+ * 语境释义用的 AI 配置。
+ * 不限定厂商：DeepSeek / Kimi / 硅基流动 / OpenAI / 本地 Ollama 走 OpenAI 协议，
+ * Claude 以及 Anthropic 兼容的中转站走 anthropic 协议。
  */
 export interface AiTranslationSettings {
   /** 关掉后即使用户填了 key 也不会请求 AI */
@@ -58,6 +65,13 @@ export interface AiTranslationSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /**
+   * 留空 = 按 baseUrl 推断（只有明确指向 Anthropic 时才走 messages）。
+   * 中转站这类看不出来的域名，用户可以在这里强制指定。
+   */
+  protocol?: AiProtocol;
+  /** 单次请求的最大输出 token；推理模型的思考 token 也算在里面，未填按 600 */
+  maxTokens?: number;
   /** 请求超时（毫秒），未填按 20 秒 */
   timeoutMs?: number;
 }

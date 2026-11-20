@@ -500,16 +500,14 @@ export const getFootnoteStyles = () => `
 const getTranslationStyles = (showSource: boolean) => `
   .translation-source {
   }
-  .translation-target.target-inner {
-    text-orientation: mixed;
-    text-combine-upright: none;
+  .translation-target {
   }
   .translation-target.hidden {
     display: none !important;
   }
   .translation-target-block {
     display: block !important;
-    ${showSource ? 'margin-block: 0.5em !important;' : ''}
+    ${showSource ? 'margin: 0.5em 0 !important;' : ''}
   }
   .translation-target-toc {
     display: block !important;

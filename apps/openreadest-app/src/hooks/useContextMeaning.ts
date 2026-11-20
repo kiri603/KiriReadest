@@ -1,7 +1,7 @@
 /**
- * 查词弹窗的「语境释义」状态机：
- * 1) 配置了 AI → 把词和句子一起发给模型，得到该词在此句中的义项；
- * 2) 没配置或调用失败 → 降级为免费机器翻译的整句译文（仍然提供语境参考）。
+ * 查词弹窗的「语境释义 + 主译文」状态机：
+ * 1) 配置了 AI → 把词和句子一起发给模型，得到该词在此句中的义项（或整句精译）；
+ * 2) 没配置或调用失败 → 降级为免费机器翻译。AI 成功时不会再请求机器翻译。
  */
 import { useEffect, useState } from 'react';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -16,7 +16,7 @@ import type { SelectionContext } from '@/utils/translationContext';
 
 export interface ContextMeaningState {
   loading: boolean;
-  /** ai = 模型给出语境义；sentence = 仅整句机翻参考 */
+  /** ai = 模型给出语境义/精译；sentence = 机器翻译 */
   mode: 'ai' | 'sentence' | null;
   wordMeaning: WordMeaning | null;
   /** 整句（或整段）译文：AI 模式来自模型，降级模式来自机器翻译 */
@@ -24,6 +24,8 @@ export interface ContextMeaningState {
   /** AI 对整句/整段的精译（仅文本模式） */
   contextTranslation: string | null;
   note: string | null;
+  /** 弹窗「译文」区域的主译文：AI 结果优先，没有 AI 时来自机器翻译 */
+  mainTranslation: string | null;
   error: string | null;
   aiConfigured: boolean;
   /** 配置了 AI 但请求失败（网络/余额/key 无效），已降级为机翻 */
@@ -73,7 +75,7 @@ const aiCacheTag = (settings?: Partial<AiTranslationSettings> | null) =>
   isAiConfigured(settings)
     ? `ai:${(settings?.baseUrl ?? '').trim().toLowerCase()}|${(settings?.model ?? '')
         .trim()
-        .toLowerCase()}`
+        .toLowerCase()}|${settings?.protocol ?? 'auto'}`
     : 'mt';
 
 const emptyState = (aiConfigured: boolean): ContextMeaningState => ({
@@ -83,6 +85,7 @@ const emptyState = (aiConfigured: boolean): ContextMeaningState => ({
   sentenceTranslation: null,
   contextTranslation: null,
   note: null,
+  mainTranslation: null,
   error: null,
   aiConfigured,
   aiFailed: false,
@@ -99,26 +102,33 @@ export function useContextMeaning({
   const settings = useSettingsStore((state) => state.settings);
   const aiSettings = settings.aiTranslation;
   const aiConfigured = isAiConfigured(aiSettings);
-  const [state, setState] = useState<ContextMeaningState>(() => emptyState(aiConfigured));
+  const aiTag = aiCacheTag(aiSettings);
+  const [state, setState] = useState<ContextMeaningState>(() => ({
+    ...emptyState(aiConfigured),
+    // 首帧就显示 loading，避免先闪一下「没有译文」再出现结果
+    loading: Boolean(text.trim()),
+  }));
 
   const sentence = context?.sentence ?? '';
 
   useEffect(() => {
     let cancelled = false;
-    const trimmed = text.trim();
-    if (!sentence || !trimmed) {
+    const trimmed = text.replaceAll('\n', '').trim();
+    if (!trimmed) {
       setState(emptyState(aiConfigured));
       return;
     }
 
+    const hasContext = Boolean(context && sentence.trim());
     const key = cacheKey(
       trimmed,
       sentence,
       wordMode ? 'word' : 'sentence',
       targetLang,
-      aiCacheTag(aiSettings),
+      aiTag,
     );
-    const cached = meaningCache.get(key);
+    // 缓存里只会有 AI 结果；关掉 AI 后 aiTag 变成 mt，自然不会再命中旧释义。
+    const cached = aiConfigured ? meaningCache.get(key) : undefined;
     let aiFailed = false;
 
     const run = async () => {
@@ -131,6 +141,7 @@ export function useContextMeaning({
             sentenceTranslation: cached.sentence,
             contextTranslation: cached.wordMeaning ? null : cached.sentence,
             note: null,
+            mainTranslation: cached.wordMeaning?.meaning ?? cached.sentence,
             error: null,
             aiConfigured,
             aiFailed: false,
@@ -139,14 +150,11 @@ export function useContextMeaning({
         return;
       }
 
-      setState((previous) => ({
-        ...previous,
-        loading: true,
-        error: null,
-        aiConfigured,
-      }));
+      setState({ ...emptyState(aiConfigured), loading: true });
 
       // —— 优先 AI ——
+      // 即使上下文提取失败（例如 PDF 里拿不到整句），单词本身仍可交给模型，
+      // 这样「配置了 AI 就不走谷歌翻译」在各种选区形态下都成立。
       if (aiConfigured) {
         try {
           if (wordMode) {
@@ -166,6 +174,7 @@ export function useContextMeaning({
               sentenceTranslation,
               contextTranslation: null,
               note: null,
+              mainTranslation: meaning.meaning,
               error: null,
               aiConfigured,
               aiFailed: false,
@@ -187,6 +196,7 @@ export function useContextMeaning({
             sentenceTranslation: result.translation,
             contextTranslation: result.translation,
             note: result.note ?? null,
+            mainTranslation: result.translation,
             error: null,
             aiConfigured,
             aiFailed: false,
@@ -200,20 +210,28 @@ export function useContextMeaning({
         }
       }
 
-      // —— 降级：整句机翻，作为语境参考 ——
+      // —— 降级：机器翻译 ——
+      // 主译文和语境参考句合并成一次调用，避免重复请求。
       try {
-        const [translation] = await translate([sentence], {
+        const inputs = [trimmed];
+        if (hasContext && sentence.trim() !== trimmed) inputs.push(sentence);
+        const results = await translate(inputs, {
           source: sourceLang,
           target: targetLang,
         });
         if (cancelled) return;
+        const mainTranslation = results[0]?.trim() || null;
+        if (!mainTranslation) {
+          throw new Error('No translation found');
+        }
         setState({
           loading: false,
           mode: 'sentence',
           wordMeaning: null,
-          sentenceTranslation: translation || null,
+          sentenceTranslation: inputs.length > 1 ? results[1]?.trim() || null : null,
           contextTranslation: null,
           note: null,
+          mainTranslation,
           error: null,
           aiConfigured,
           aiFailed,
@@ -227,6 +245,7 @@ export function useContextMeaning({
           sentenceTranslation: null,
           contextTranslation: null,
           note: null,
+          mainTranslation: null,
           error: error instanceof Error ? error.message : String(error),
           aiConfigured,
           aiFailed,
@@ -244,9 +263,12 @@ export function useContextMeaning({
     sentence,
     context?.previousSentence,
     context?.paragraph,
+    sourceLang,
     targetLang,
     aiConfigured,
+    aiTag,
     wordMode,
+    translate,
   ]);
 
   return state;

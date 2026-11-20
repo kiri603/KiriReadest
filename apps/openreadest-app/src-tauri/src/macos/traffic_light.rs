@@ -3,7 +3,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use tauri::{
     command,
     plugin::{Builder, TauriPlugin},
-    Emitter, Runtime, Window,
+    Emitter, EventTarget, Runtime, Window,
 };
 
 static mut WINDOW_CONTROL_PAD_X: f64 = 10.0;
@@ -241,7 +241,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                 with_window_state(this, |state: &mut WindowState<R>| {
                     state
                         .window
-                        .emit("did-enter-fullscreen", ())
+                        .emit_to(
+                            EventTarget::window(state.window.label()),
+                            "did-enter-fullscreen",
+                            (),
+                        )
                         .expect("Failed to emit event");
                 });
 
@@ -258,7 +262,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                 with_window_state(this, |state: &mut WindowState<R>| {
                     state
                         .window
-                        .emit("will-enter-fullscreen", ())
+                        .emit_to(
+                            EventTarget::window(state.window.label()),
+                            "will-enter-fullscreen",
+                            (),
+                        )
                         .expect("Failed to emit event");
                 });
 
@@ -275,7 +283,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                 with_window_state(this, |state: &mut WindowState<R>| {
                     state
                         .window
-                        .emit("did-exit-fullscreen", ())
+                        .emit_to(
+                            EventTarget::window(state.window.label()),
+                            "did-exit-fullscreen",
+                            (),
+                        )
                         .expect("Failed to emit event");
 
                     let id = state.window.ns_window().expect("Failed to emit event") as id;
@@ -303,7 +315,11 @@ pub fn setup_traffic_light_positioner<R: Runtime>(window: Window<R>) {
                 with_window_state(this, |state: &mut WindowState<R>| {
                     state
                         .window
-                        .emit("will-exit-fullscreen", ())
+                        .emit_to(
+                            EventTarget::window(state.window.label()),
+                            "will-exit-fullscreen",
+                            (),
+                        )
                         .expect("Failed to emit event");
                 });
 

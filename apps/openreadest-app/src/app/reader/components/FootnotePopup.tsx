@@ -254,7 +254,7 @@ const FootnotePopup: React.FC<FootnotePopupProps> = ({ bookKey, bookDoc }) => {
         height={responsiveHeight}
         position={showPopup ? popupPosition! : undefined}
         trianglePosition={showPopup ? trianglePosition! : undefined}
-        className='select-text overflow-y-auto'
+        className='scrollbar-subtle select-text overflow-y-auto'
         onDismiss={handleDismissPopup}
       >
         <div

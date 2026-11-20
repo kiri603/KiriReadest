@@ -8,11 +8,15 @@
  */
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { isTauriAppPlatform } from '@/services/environment';
-import { TRANSLATOR_LANGS } from '@/services/constants';
-import type { AiTranslationSettings } from '@/types/settings';
+import {
+  DEFAULT_AI_MAX_TOKENS,
+  DEFAULT_AI_TIMEOUT_MS,
+  TRANSLATOR_LANGS,
+} from '@/services/constants';
+import type { AiProtocol, AiTranslationSettings } from '@/types/settings';
 import type { SelectionContext } from '@/utils/translationContext';
 
-export type AiErrorCode = 'not-configured' | 'network' | 'http' | 'parse';
+export type AiErrorCode = 'not-configured' | 'network' | 'http' | 'parse' | 'timeout';
 
 export class AiTranslationError extends Error {
   readonly code: AiErrorCode;
@@ -67,6 +71,29 @@ export const isAiConfigured = (settings?: Partial<AiTranslationSettings> | null)
   return Boolean(settings.baseUrl?.trim() && settings.apiKey?.trim() && settings.model?.trim());
 };
 
+/**
+ * 用户在设置里填的输出预算：留空/非法值回退到默认 600，并限制在 [64, 8192]。
+ * 推理模型的思考 token 与正文共用这个预算，因此复杂句子上需要比 600 大得多。
+ */
+export function resolveMaxTokens(settings?: Partial<AiTranslationSettings> | null): number {
+  const raw = Number(settings?.maxTokens);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_AI_MAX_TOKENS;
+  return Math.min(Math.max(Math.round(raw), 64), 8192);
+}
+
+/** 用户在设置里填的超时：留空/非法值回退到默认 20 秒，并限制在 [1s, 10min]。 */
+export function resolveTimeoutMs(settings?: Partial<AiTranslationSettings> | null): number {
+  const raw = Number(settings?.timeoutMs);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_AI_TIMEOUT_MS;
+  return Math.min(Math.max(Math.round(raw), 1000), 600000);
+}
+
+/** 接口协议：openai = /chat/completions，anthropic = /v1/messages（定义在 settings 里，这里转出便于调用方只 import 一处） */
+export type { AiProtocol };
+
+/** Anthropic 要求显式声明 API 版本，固定用当前稳定版 */
+export const ANTHROPIC_API_VERSION = '2023-06-01';
+
 /** 把用户填的 baseUrl 解析成 chat/completions 完整地址；宽容处理尾斜杠与完整路径 */
 export function resolveChatCompletionsUrl(baseUrl: string): string {
   const base = baseUrl.trim().replace(/\/+$/, '');
@@ -75,11 +102,62 @@ export function resolveChatCompletionsUrl(baseUrl: string): string {
   return `${base}/chat/completions`;
 }
 
-/** 同样的 baseUrl 解析成模型列表地址（OpenAI 兼容的 GET /models） */
-export function resolveModelsUrl(baseUrl: string): string {
+/** 把用户填的 baseUrl 解析成 Anthropic 的 messages 完整地址；同样宽容处理各种写法 */
+export function resolveMessagesUrl(baseUrl: string): string {
   const base = baseUrl.trim().replace(/\/+$/, '');
   if (!base) return '';
-  if (/\/chat\/completions$/i.test(base)) return base.replace(/\/chat\/completions$/i, '/models');
+  if (/\/messages$/i.test(base)) return base;
+  if (/\/chat\/completions$/i.test(base)) return base.replace(/\/chat\/completions$/i, '/messages');
+  if (/\/v1$/i.test(base)) return `${base}/messages`;
+  return `${base}/v1/messages`;
+}
+
+/**
+ * 仅凭 baseUrl 无法可靠判断协议，所以这里只在地址「明确指向 Anthropic」时才切换，
+ * 其余一律退回 OpenAI 兼容 —— 这样现有 DeepSeek / OpenAI / Ollama / 中转站地址
+ * 的请求格式一个字节都不会变。
+ *
+ * 猜不准的情况（自建反代、同时支持两种协议的网关）由设置里的 protocol 手动覆盖。
+ */
+export function detectAiProtocol(baseUrl: string): AiProtocol {
+  const raw = baseUrl.trim();
+  if (!raw) return 'openai';
+  const lower = raw.toLowerCase();
+  // 已经写全 .../v1/messages 的地址不用再猜
+  if (/\/messages\/?$/.test(lower)) return 'anthropic';
+  let host = '';
+  let path = '';
+  try {
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(lower) ? lower : `https://${lower}`);
+    host = parsed.hostname;
+    path = parsed.pathname;
+  } catch {
+    host = lower;
+  }
+  if (host === 'anthropic.com' || host.endsWith('.anthropic.com')) return 'anthropic';
+  // 中转站常把 anthropic 写进域名或路径（例如 https://api.example.com/anthropic）
+  if (host.includes('anthropic') || path.includes('anthropic')) return 'anthropic';
+  return 'openai';
+}
+
+/** 显式配置优先；未填（含升级前保存的老设置）时按 baseUrl 推断 */
+export function resolveAiProtocol(settings?: Partial<AiTranslationSettings> | null): AiProtocol {
+  const explicit = settings?.protocol;
+  if (explicit === 'anthropic' || explicit === 'openai') return explicit;
+  return detectAiProtocol(settings?.baseUrl ?? '');
+}
+
+/** 同样的 baseUrl 解析成模型列表地址（OpenAI 兼容的 GET /models，Anthropic 为 /v1/models） */
+export function resolveModelsUrl(baseUrl: string, protocol: AiProtocol = 'openai'): string {
+  const base = baseUrl
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/chat\/completions$/i, '')
+    .replace(/\/messages$/i, '');
+  if (!base) return '';
+  if (protocol === 'anthropic') {
+    return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`;
+  }
   return `${base}/models`;
 }
 
@@ -141,6 +219,36 @@ function extractMessageContent(payload: unknown): string {
       .trim();
   }
   return '';
+}
+
+/**
+ * Anthropic /v1/messages 的回复结构：{ content: [{ type: 'text', text: '...' }] }。
+ * 只拼 text 块，thinking / tool_use 之类的块直接跳过。
+ */
+function extractAnthropicContent(payload: unknown): string {
+  const data = payload as {
+    content?: ({ type?: string; text?: string } | string)[];
+  };
+  const content = data?.content;
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      if (!part) return '';
+      if (part.type && part.type !== 'text') return '';
+      return part.text ?? '';
+    })
+    .join('')
+    .trim();
+}
+
+/** Anthropic 的错误体是 { type: 'error', error: { type, message } }，比 OpenAI 的更好读 */
+export function describeAnthropicError(payload: unknown): string {
+  const data = payload as { error?: { type?: string; message?: string }; message?: string };
+  const detail = data?.error;
+  if (detail?.message) return detail.type ? `${detail.type}: ${detail.message}` : detail.message;
+  return data?.message ?? '';
 }
 
 /** 从模型回复里抠出 JSON：兼容 ```json 代码块、前后多余文字 */
@@ -210,6 +318,76 @@ interface ChatRequestOptions {
   timeoutMs?: number;
 }
 
+const isAnthropicHost = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'anthropic.com' || hostname.endsWith('.anthropic.com');
+  } catch {
+    return false;
+  }
+};
+
+interface PreparedRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+/**
+ * 按协议生成请求。OpenAI 分支保持原样（Authorization: Bearer + messages 里带 system），
+ * Anthropic 分支把 system 提到顶层、用 x-api-key 认证，并要求 max_tokens 必填。
+ */
+function prepareChatRequest(
+  settings: Partial<AiTranslationSettings>,
+  protocol: AiProtocol,
+  systemPrompt: string,
+  userPrompt: string,
+): PreparedRequest {
+  const maxTokens = resolveMaxTokens(settings);
+
+  if (protocol === 'anthropic') {
+    const url = resolveMessagesUrl(settings.baseUrl || '');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.apiKey ?? '',
+      'anthropic-version': ANTHROPIC_API_VERSION,
+    };
+    // 浏览器直连官方端点必须显式声明，否则会被 CORS 层拒绝；Tauri 走原生 HTTP 不需要
+    if (!isTauriAppPlatform() && isAnthropicHost(url)) {
+      headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    }
+    return {
+      url,
+      headers,
+      body: {
+        model: settings.model,
+        max_tokens: maxTokens,
+        temperature: 0.2,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+    };
+  }
+
+  return {
+    url: resolveChatCompletionsUrl(settings.baseUrl || ''),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${settings.apiKey}`,
+    },
+    body: {
+      model: settings.model,
+      temperature: 0.2,
+      max_tokens: maxTokens,
+      stream: false,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    },
+  };
+}
+
 async function requestChatCompletion(
   settings: Partial<AiTranslationSettings> | undefined,
   systemPrompt: string,
@@ -219,12 +397,13 @@ async function requestChatCompletion(
   if (!settings || !isAiConfigured(settings)) {
     throw new AiTranslationError('not-configured', 'AI translation is not configured');
   }
-  const url = resolveChatCompletionsUrl(settings.baseUrl || '');
+  const protocol = resolveAiProtocol(settings);
+  const { url, headers, body } = prepareChatRequest(settings, protocol, systemPrompt, userPrompt);
   if (!url) {
     throw new AiTranslationError('not-configured', 'AI base URL is empty');
   }
   const fetchImpl = options.fetchImpl ?? systemFetch();
-  const timeoutMs = options.timeoutMs ?? settings.timeoutMs ?? 20000;
+  const timeoutMs = options.timeoutMs ?? resolveTimeoutMs(settings);
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller
     ? setTimeout(() => {
@@ -232,42 +411,45 @@ async function requestChatCompletion(
       }, timeoutMs)
     : null;
 
-  const body = {
-    model: settings.model,
-    temperature: 0.2,
-    max_tokens: 600,
-    stream: false,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-  };
-
   try {
     const response = await fetchImpl(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller?.signal,
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const rawDetail = await response.text().catch(() => '');
+      let detail = rawDetail;
+      if (protocol === 'anthropic' && rawDetail) {
+        try {
+          const parsed = JSON.parse(rawDetail) as unknown;
+          detail = describeAnthropicError(parsed) || rawDetail;
+        } catch {
+          // 不是 JSON 就按原文显示
+        }
+      }
       throw new AiTranslationError(
         'http',
         `AI request failed with status ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`,
       );
     }
     const payload = await response.json().catch(() => null);
-    const content = extractMessageContent(payload);
+    const content =
+      protocol === 'anthropic' ? extractAnthropicContent(payload) : extractMessageContent(payload);
     if (!content) {
       throw new AiTranslationError('parse', 'AI response was empty');
     }
     return content;
   } catch (error) {
     if (error instanceof AiTranslationError) throw error;
+    // 超时由上面的 AbortController 触发，单独归类，便于设置页提示「超时」而不是笼统的网络错误
+    if (controller?.signal.aborted) {
+      throw new AiTranslationError(
+        'timeout',
+        `AI request timed out after ${Math.round(timeoutMs / 1000)}s`,
+      );
+    }
     throw new AiTranslationError(
       'network',
       `AI request failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -298,7 +480,7 @@ const extractModelIds = (payload: unknown): string[] => {
 };
 
 /**
- * 拉取该端点 + 该 Key 可用的模型列表（OpenAI 兼容 GET /models）。
+ * 拉取该端点 + 该 Key 可用的模型列表（OpenAI 兼容 GET /models；Anthropic 为 GET /v1/models）。
  * 中转站/多模型网关常用它辅助选择；不支持 /models 的端点会报错，手填模型名即可。
  */
 export async function listAiModels(
@@ -308,16 +490,27 @@ export async function listAiModels(
   if (!settings || !settings.baseUrl?.trim() || !settings.apiKey?.trim()) {
     throw new AiTranslationError('not-configured', 'AI endpoint or API key is missing');
   }
-  const url = resolveModelsUrl(settings.baseUrl);
+  const protocol = resolveAiProtocol(settings);
+  const url = resolveModelsUrl(settings.baseUrl, protocol);
   const fetchImpl = options.fetchImpl ?? systemFetch();
-  const timeoutMs = options.timeoutMs ?? settings.timeoutMs ?? 20000;
+  const timeoutMs = options.timeoutMs ?? resolveTimeoutMs(settings);
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const headers: Record<string, string> =
+    protocol === 'anthropic'
+      ? {
+          'x-api-key': settings.apiKey,
+          'anthropic-version': ANTHROPIC_API_VERSION,
+          ...(!isTauriAppPlatform() && isAnthropicHost(url)
+            ? { 'anthropic-dangerous-direct-browser-access': 'true' }
+            : {}),
+        }
+      : { Authorization: `Bearer ${settings.apiKey}` };
 
   try {
     const response = await fetchImpl(url, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers,
       signal: controller?.signal,
     });
     if (!response.ok) {
@@ -383,6 +576,9 @@ export async function translateWithContext(
 export const __testing = {
   buildUserPrompt,
   extractMessageContent,
+  extractAnthropicContent,
+  prepareChatRequest,
+  isAnthropicHost,
   SYSTEM_WORD_PROMPT,
   SYSTEM_SENTENCE_PROMPT,
 };

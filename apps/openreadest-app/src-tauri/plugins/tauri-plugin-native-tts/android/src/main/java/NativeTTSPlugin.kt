@@ -419,6 +419,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
                     put("name", name)
                     put("lang", language)
                     put("disabled", false)
+                    put("offline", !voice.isNetworkConnectionRequired &&
+                        TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in voice.features)
                 }
             } ?: emptyList()
             

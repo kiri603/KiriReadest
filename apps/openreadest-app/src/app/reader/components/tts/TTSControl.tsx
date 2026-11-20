@@ -512,6 +512,15 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
     await handleStop(bookKey);
   };
 
+  const updateMediaPlaybackState = useCallback(async (playing: boolean) => {
+    const session = mediaSessionRef.current;
+    if (session instanceof TauriMediaSession) {
+      await session.updatePlaybackState({ playing });
+    } else if (session) {
+      session.playbackState = playing ? 'playing' : 'paused';
+    }
+  }, []);
+
   const handleTogglePlay = useCallback(async () => {
     const ttsController = ttsControllerRef.current;
     if (!ttsController) return;
@@ -532,15 +541,8 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
       }
     }
 
-    if (mediaSessionRef.current) {
-      const mediaSession = mediaSessionRef.current;
-      if (mediaSession instanceof TauriMediaSession) {
-        await mediaSession.updatePlaybackState({ playing: !isPlaying });
-      } else {
-        mediaSession.playbackState = isPlaying ? 'paused' : 'playing';
-      }
-    }
-  }, [isPlaying, isPaused]);
+    await updateMediaPlaybackState(!isPlaying);
+  }, [isPlaying, isPaused, updateMediaPlaybackState]);
 
   const handleBackward = useCallback(async (byMark = false) => {
     const ttsController = ttsControllerRef.current;
@@ -592,6 +594,22 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
     ttsController.addEventListener('tts-end', handleEnd);
     return () => ttsController.removeEventListener('tts-end', handleEnd);
   }, [ttsController, bookKey, handleStop]);
+
+  useEffect(() => {
+    if (!ttsController) return;
+    const handlePlaybackError = () => {
+      if (ttsControllerRef.current !== ttsController) return;
+      setIsPlaying(false);
+      setIsPaused(true);
+      void updateMediaPlaybackState(false).catch(console.error);
+      eventDispatcher.dispatch('toast', {
+        message: _('Read aloud failed. Try another voice.'),
+        type: 'error',
+      });
+    };
+    ttsController.addEventListener('tts-playback-error', handlePlaybackError);
+    return () => ttsController.removeEventListener('tts-playback-error', handlePlaybackError);
+  }, [ttsController, updateMediaPlaybackState, _]);
 
   // rate range: 0.5 - 3, 1.0 is normal speed
   // eslint-disable-next-line react-hooks/exhaustive-deps

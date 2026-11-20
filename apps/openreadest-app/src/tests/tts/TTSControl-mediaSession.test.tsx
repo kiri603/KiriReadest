@@ -129,6 +129,7 @@ const insets = { top: 0, right: 0, bottom: 0, left: 0 };
 interface FakeSession {
   handlers: Record<string, Handler>;
   setActive: Mock<(s: MediaSessionState) => Promise<void>>;
+  updatePlaybackState: Mock<(s: { playing: boolean }) => Promise<void>>;
 }
 interface FakeController extends EventTarget {
   pause: Mock<() => Promise<void>>;
@@ -226,6 +227,18 @@ describe('TTSControl media session lifecycle', () => {
     });
     expect(lastController().shutdown).toHaveBeenCalledTimes(1);
     expect(deinitCalls()).toBe(1);
+  });
+
+  it('pauses the media session after a playback error and keeps voice controls available', async () => {
+    render(<TTSControl bookKey={KEY} gridInsets={insets} />);
+    await speak();
+    const controller = lastController();
+    await act(async () => {
+      controller.dispatchEvent(new Event('tts-playback-error'));
+    });
+    expect(session().updatePlaybackState).toHaveBeenLastCalledWith({ playing: false });
+    expect(controller.shutdown).not.toHaveBeenCalled();
+    expect(deinitCalls()).toBe(0);
   });
 
   it('keeps the session on pause', async () => {

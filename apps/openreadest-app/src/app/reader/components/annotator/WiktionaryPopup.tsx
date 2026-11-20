@@ -326,7 +326,7 @@ const WiktionaryPopup: React.FC<WiktionaryPopupProps> = ({
         onDismiss={onDismiss}
       >
         <div className='flex h-full flex-col'>
-          <main className='flex-grow overflow-y-auto p-4 font-sans'>
+          <main className='scrollbar-subtle flex-grow overflow-y-auto p-4 font-sans'>
             {lookup.state === 'loading' && (
               <div className='flex h-full items-center justify-center'>
                 <span className='loading loading-spinner' aria-label={_('Loading')} />

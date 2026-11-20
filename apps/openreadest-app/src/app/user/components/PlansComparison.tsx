@@ -141,12 +141,10 @@ const PlansComparison: React.FC<PlansComparisonProps> = ({
 
       <div
         ref={plansScrollRef}
-        className='plans-container scrollbar-hide flex items-start overflow-x-auto scroll-smooth sm:px-52'
+        className='plans-container scrollbar-hidden flex items-start overflow-x-auto scroll-smooth sm:px-52'
         onTouchStart={handleTouchStart}
         style={{
           scrollSnapType: appService?.isIOSApp ? 'x mandatory' : 'none',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
         }}
       >
         {allPlans.map((plan, index) => (

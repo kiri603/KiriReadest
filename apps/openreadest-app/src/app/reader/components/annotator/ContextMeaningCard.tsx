@@ -1,35 +1,22 @@
 /**
  * 查词弹窗里的「语境释义」卡片。
  *
- * 配置了 AI：显示该词在当前句子中的义项、整句译文与取舍理由；
- * 没有配置：显示整句译文，并把目标词在原句中高亮，作为语境参考。
+ * 只负责展示：数据由 useContextMeaning 统一获取，避免卡片和弹窗各自
+ * 请求一次翻译（配置了 AI 时更不应该再走机器翻译）。
  */
-import React, { useLayoutEffect } from 'react';
+import React from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useContextMeaning } from '@/hooks/useContextMeaning';
-import { isWordLikeSelection } from '@/utils/translationContext';
+import type { ContextMeaningState } from '@/hooks/useContextMeaning';
 import type { SelectionContext } from '@/utils/translationContext';
-
-type TranslateFn = (
-  input: string[],
-  options?: { source?: string; target?: string },
-) => Promise<string[]>;
 
 interface ContextMeaningCardProps {
   text: string;
   context: SelectionContext | null;
-  sourceLang: string;
-  targetLang: string;
-  translate: TranslateFn;
   /** 目标文本是否是词/短语（词模式才有「义项」概念） */
-  wordMode?: boolean;
+  wordMode: boolean;
+  state: ContextMeaningState;
   /** 打开「设置 → 语言 → AI Context Meaning」面板，让用户在界面里填 key，而不是改文件 */
   onConfigureAi?: () => void;
-  /**
-   * 卡片是否已经给出了可用结果。翻译弹窗据此判断：机器翻译失败时，
-   * 如果这里已经有语境释义，就不该再显示「无法获取翻译」。
-   */
-  onResult?: (hasResult: boolean) => void;
 }
 
 const HighlightedSentence: React.FC<{ sentence: string; word: string }> = ({ sentence, word }) => {
@@ -51,26 +38,11 @@ const HighlightedSentence: React.FC<{ sentence: string; word: string }> = ({ sen
 const ContextMeaningCard: React.FC<ContextMeaningCardProps> = ({
   text,
   context,
-  sourceLang,
-  targetLang,
-  translate,
-  wordMode = isWordLikeSelection(text),
+  wordMode,
+  state,
   onConfigureAi,
-  onResult,
 }) => {
   const _ = useTranslation();
-  const state = useContextMeaning({ text, context, sourceLang, targetLang, translate, wordMode });
-
-  const hasResult = Boolean(
-    !state.loading &&
-      !state.error &&
-      (state.wordMeaning || state.contextTranslation || state.sentenceTranslation),
-  );
-  // 用 layout effect 是为了在浏览器绘制前就把「已有结果」传给弹窗，
-  // 避免机器翻译失败的红字和 AI 结果在同一帧里同时出现
-  useLayoutEffect(() => {
-    onResult?.(hasResult);
-  }, [hasResult, onResult]);
 
   // 整句选择且没有配置 AI，或上下文提取失败时，普通翻译已经覆盖了需求
   if (!context) return null;
@@ -80,7 +52,7 @@ const ContextMeaningCard: React.FC<ContextMeaningCardProps> = ({
 
   return (
     <div
-      className='not-eink:bg-white/10 eink:bg-base-200 mb-3 rounded-md px-3 py-2'
+      className='not-eink:bg-white/10 eink:bg-base-200 mb-3 select-text rounded-md px-3 py-2'
       data-testid='context-meaning-card'
     >
       <div className='mb-1 flex items-center justify-between'>

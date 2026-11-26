@@ -170,8 +170,9 @@ pub(crate) async fn open_external_url<R: Runtime>(
 pub(crate) async fn select_directory<R: Runtime>(
     app: AppHandle<R>,
     callback_state: State<'_, DirectoryCallbackState<R>>,
+    extensions: Option<Vec<String>>,
 ) -> Result<SelectDirectoryResponse> {
-    let result = app.native_bridge().select_directory()?;
+    let result = app.native_bridge().select_directory(extensions)?;
 
     if let Some(dir_path) = &result.path {
         let path = PathBuf::from(dir_path);

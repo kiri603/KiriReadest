@@ -224,10 +224,25 @@ pub struct OpenExternalUrlResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SelectDirectoryRequest {
+    pub extensions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryDocument {
+    pub relative_path: String,
+    pub uri: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SelectDirectoryResponse {
     pub cancelled: Option<bool>,
     pub uri: Option<String>,
     pub path: Option<String>,
+    pub directory_name: Option<String>,
+    pub files: Option<Vec<DirectoryDocument>>,
     pub error: Option<String>,
 }
 

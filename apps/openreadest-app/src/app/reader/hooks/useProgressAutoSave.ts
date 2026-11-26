@@ -9,7 +9,7 @@ import { throttle } from '@/utils/throttle';
 export const useProgressAutoSave = (bookKey: string) => {
   const { envConfig } = useEnv();
   const { getConfig, saveConfig } = useBookDataStore();
-  const { getProgress } = useReaderStore();
+  const { getProgress, getViewState } = useReaderStore();
   const progress = getProgress(bookKey);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -17,7 +17,8 @@ export const useProgressAutoSave = (bookKey: string) => {
     throttle(() => {
       setTimeout(async () => {
         const config = getConfig(bookKey)!;
-        if (!config || useWebDavStore.getState().isSyncing) return;
+        if (!config || !getViewState(bookKey)?.inited || useWebDavStore.getState().isSyncing)
+          return;
         const settings = useSettingsStore.getState().settings;
         await saveConfig(envConfig, bookKey, config, settings);
       }, 5000);

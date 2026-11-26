@@ -217,9 +217,12 @@ impl<R: Runtime> NativeBridge<R> {
 }
 
 impl<R: Runtime> NativeBridge<R> {
-    pub fn select_directory(&self) -> crate::Result<SelectDirectoryResponse> {
+    pub fn select_directory(
+        &self,
+        extensions: Option<Vec<String>>,
+    ) -> crate::Result<SelectDirectoryResponse> {
         self.0
-            .run_mobile_plugin("select_directory", ())
+            .run_mobile_plugin("select_directory", SelectDirectoryRequest { extensions })
             .map_err(Into::into)
     }
 }

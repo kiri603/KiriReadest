@@ -81,6 +81,7 @@ export class WebDavClient {
       headers?: HeadersInit;
       body?: BodyInit | null;
       timeoutMs?: number;
+      signal?: AbortSignal;
     },
   ): Promise<WebDavResponse<string>> {
     const url = this.buildUrl(path);
@@ -93,6 +94,7 @@ export class WebDavClient {
       method: options.method,
       headers,
       body: options.body ?? null,
+      signal: options.signal,
     };
 
     if (isTauriAppPlatform()) {
@@ -126,6 +128,7 @@ export class WebDavClient {
       headers?: HeadersInit;
       body?: BodyInit | null;
       timeoutMs?: number;
+      signal?: AbortSignal;
     },
   ): Promise<WebDavResponse<ArrayBuffer>> {
     const url = this.buildUrl(path);
@@ -138,6 +141,7 @@ export class WebDavClient {
       method: options.method,
       headers,
       body: options.body ?? null,
+      signal: options.signal,
     };
 
     if (isTauriAppPlatform()) {
@@ -318,7 +322,12 @@ export class WebDavClient {
 
   async get(
     path: string,
-    options?: { range?: { start: number; end?: number }; ifRange?: string },
+    options?: {
+      range?: { start: number; end?: number };
+      ifRange?: string;
+      revalidate?: boolean;
+      signal?: AbortSignal;
+    },
   ): Promise<WebDavResponse<ArrayBuffer>> {
     const headers: Record<string, string> = {};
     if (options?.range) {
@@ -327,7 +336,8 @@ export class WebDavClient {
     if (options?.ifRange) {
       headers['If-Range'] = options.ifRange;
     }
-    return this.requestBinary(path, { method: 'GET', headers });
+    if (options?.revalidate) headers['Cache-Control'] = 'no-cache';
+    return this.requestBinary(path, { method: 'GET', headers, signal: options?.signal });
   }
 
   async putFileFromPath(
@@ -371,13 +381,23 @@ export class WebDavClient {
   async put(
     path: string,
     body: BodyInit,
-    options?: { contentType?: string; ifMatch?: string; ifNoneMatch?: string },
+    options?: {
+      contentType?: string;
+      ifMatch?: string;
+      ifNoneMatch?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<WebDavResponse<void>> {
     const headers: Record<string, string> = {};
     if (options?.contentType) headers['Content-Type'] = options.contentType;
     if (options?.ifMatch) headers['If-Match'] = options.ifMatch;
     if (options?.ifNoneMatch) headers['If-None-Match'] = options.ifNoneMatch;
-    const response = await this.requestText(path, { method: 'PUT', headers, body });
+    const response = await this.requestText(path, {
+      method: 'PUT',
+      headers,
+      body,
+      signal: options?.signal,
+    });
     return {
       ok: response.ok,
       status: response.status,

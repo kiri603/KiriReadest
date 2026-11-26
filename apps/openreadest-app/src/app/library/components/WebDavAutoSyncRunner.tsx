@@ -125,6 +125,7 @@ const WebDavAutoSyncRunner = () => {
             data.book,
             useSettingsStore.getState().settings,
           );
+          if (!useReaderStore.getState().getViewState(state.key)?.inited) continue;
           const latest = useBookDataStore.getState().getConfig(state.key);
           if (!latest) continue;
           const result = mergeWebDavJsonContent(
@@ -139,6 +140,7 @@ const WebDavAutoSyncRunner = () => {
           if (moved) {
             await useReaderStore.getState().applySyncedProgress(data.id, merged.location!);
           }
+          if (!useReaderStore.getState().getViewState(state.key)?.inited) continue;
           await useBookDataStore
             .getState()
             .saveConfig(envConfig, state.key, merged, useSettingsStore.getState().settings);

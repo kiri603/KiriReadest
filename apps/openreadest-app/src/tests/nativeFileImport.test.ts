@@ -60,8 +60,10 @@ describe('native file import', () => {
     expect(new Set(destinations).size).toBe(2);
   });
 
-  it('continues to open external storage URIs directly', async () => {
-    const uri = 'content://com.android.externalstorage.documents/document/primary%3A100%25.epub';
+  it.each([
+    'content://com.android.externalstorage.documents/document/primary%3A100%25.epub',
+    'content://com.android.externalstorage.documents/tree/primary%3ABooks/document/primary%3ABooks%2F100%25.epub',
+  ])('opens the external storage URI %s directly', async (uri) => {
     vi.mocked(basename).mockResolvedValue('100%.epub');
     const { nativeFileSystem } = await import('@/services/nativeAppService');
 

@@ -97,6 +97,8 @@
   "No complete dictionary bundle could be imported": "No complete dictionary bundle could be imported",
   "Failed to store dictionary files": "Failed to store dictionary files",
   "Import": "Import",
+  "Invert Selection": "Invert Selection",
+  "Failed to scan folder": "Failed to scan folder",
   "Not found": "Not found",
   "No exact match for": "No exact match for",
   "Did you mean one of these?": "Did you mean one of these?",

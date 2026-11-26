@@ -26,9 +26,11 @@ import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -39,6 +41,7 @@ import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
 import org.json.JSONArray
 import java.io.*
+import kotlin.concurrent.thread
 
 @InvokeArg
 class AuthRequestArgs {
@@ -49,6 +52,11 @@ class AuthRequestArgs {
 class CopyURIRequestArgs {
     var uri: String? = null
     var dst: String? = null
+}
+
+@InvokeArg
+class SelectDirectoryArgs {
+    var extensions: List<String>? = null
 }
 
 @InvokeArg
@@ -132,9 +140,7 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
 
     companion object {
         private const val REQUEST_MANAGE_STORAGE = 1001
-        private const val FOLDER_PICKER_REQUEST_CODE = 1002
         var pendingInvoke: Invoke? = null
-        var pendingFolderPickerInvoke: Invoke? = null
         private var instance: NativeBridgePlugin? = null
         fun getInstance(): NativeBridgePlugin? = instance
     }
@@ -706,11 +712,11 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun select_directory(invoke: Invoke) {
-        pendingFolderPickerInvoke = invoke
-
         try {
+            val args = invoke.parseArgs(SelectDirectoryArgs::class.java)
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-            activity.startActivityForResult(intent, FOLDER_PICKER_REQUEST_CODE)
+            if (args.extensions != null) intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivityForResult(invoke, intent, "directoryPickerResult")
         } catch (e: Exception) {
             val result = JSObject()
             result.put("cancelled", true)
@@ -718,18 +724,73 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
             result.put("path", null)
             result.put("error", e.message)
             invoke.resolve(result)
-            pendingFolderPickerInvoke = null
         }
     }
 
-    fun handleActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == FOLDER_PICKER_REQUEST_CODE) {
-            val invoke = pendingFolderPickerInvoke
-            if (invoke != null) {
-                handleDirectorySelected(data?.data, invoke)
-                pendingFolderPickerInvoke = null
+    @ActivityCallback
+    fun directoryPickerResult(invoke: Invoke, result: ActivityResult) {
+        val extensions = invoke.parseArgs(SelectDirectoryArgs::class.java).extensions?.toSet()
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+        if (uri == null || extensions == null) {
+            handleDirectorySelected(uri, invoke)
+            return
+        }
+
+        thread {
+            try {
+                invoke.resolve(scanSelectedDirectory(uri, extensions))
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: "Failed to scan selected directory")
             }
         }
+    }
+
+    private fun scanSelectedDirectory(treeUri: Uri, extensions: Set<String>): JSObject {
+        val resolver = activity.contentResolver
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+        val displayName = DocumentsContract.Document.COLUMN_DISPLAY_NAME
+        val rootName = resolver.query(rootUri, arrayOf(displayName), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            displayName,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        val directories = ArrayDeque<Pair<String, String>>()
+        val visited = mutableSetOf<String>()
+        val files = JSArray()
+        directories.addLast(Pair(rootId, ""))
+
+        while (directories.isNotEmpty()) {
+            val (directoryId, parent) = directories.removeFirst()
+            if (!visited.add(directoryId)) continue
+            val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directoryId)
+            val cursor = resolver.query(children, columns, null, null, null)
+                ?: throw IOException("Could not read selected directory")
+            cursor.use {
+                while (it.moveToNext()) {
+                    val id = it.getString(0) ?: continue
+                    val name = it.getString(1) ?: continue
+                    val relativePath = if (parent.isEmpty()) name else "$parent/$name"
+                    if (it.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        directories.addLast(Pair(id, relativePath))
+                    } else if (name.substringAfterLast('.', "").lowercase() in extensions) {
+                        val file = JSObject()
+                        file.put("relativePath", relativePath)
+                        file.put("uri", DocumentsContract.buildDocumentUriUsingTree(treeUri, id).toString())
+                        files.put(file)
+                    }
+                }
+            }
+        }
+
+        val result = JSObject()
+        result.put("cancelled", false)
+        result.put("directoryName", rootName)
+        result.put("files", files)
+        return result
     }
 
     private fun handleDirectorySelected(uri: Uri?, invoke: Invoke) {
@@ -760,7 +821,6 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
         }
 
         invoke.resolve(result)
-        pendingInvoke = null
     }
 
     private fun extractPathFromUri(uri: Uri): String? {

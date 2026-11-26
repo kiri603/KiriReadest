@@ -18,7 +18,9 @@ export interface SelectedFile {
 
   // For Tauri file
   path?: string;
-  basePath?: string;
+
+  // For folder imports
+  groupName?: string;
 }
 
 export interface FileSelectionResult {

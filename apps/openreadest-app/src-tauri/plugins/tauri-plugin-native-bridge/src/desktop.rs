@@ -133,7 +133,10 @@ impl<R: Runtime> NativeBridge<R> {
         Err(crate::Error::UnsupportedPlatformError)
     }
 
-    pub fn select_directory(&self) -> crate::Result<SelectDirectoryResponse> {
+    pub fn select_directory(
+        &self,
+        _extensions: Option<Vec<String>>,
+    ) -> crate::Result<SelectDirectoryResponse> {
         Err(crate::Error::UnsupportedPlatformError)
     }
 

@@ -1,0 +1,79 @@
+name: Package macOS
+
+on:
+  push:
+    branches: [codex/release-v0.9.106]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: KiriReadest-macOS-universal
+    env:
+      NEXT_PUBLIC_APP_PLATFORM: tauri
+      NODE_OPTIONS: --max-old-space-size=6144
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: apple-${{ matrix.platform }}
+
+      - name: Install dependencies and prepare assets
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @openreadest/app setup-vendors
+
+      - name: Build and verify macOS disk image
+        if: matrix.platform == 'macOS'
+        shell: bash
+        working-directory: apps/openreadest-app
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: |
+          pnpm tauri build --target universal-apple-darwin --bundles app,dmg --ci
+          bundle=../../target/universal-apple-darwin/release/bundle
+          app="$bundle/macos/KiriReadest.app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo "$app/Contents/MacOS/$executable" -verify_arch arm64 x86_64
+          images=("$bundle"/dmg/*.dmg)
+          [[ ${#images[@]} -eq 1 && -f "${images[0]}" ]]
+          hdiutil verify "${images[0]}"
+          mkdir -p ../../apple-packages
+          version=$(node -p 'require("./package.json").version')
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$version"
+          cp "${images[0]}" "../../apple-packages/KiriReadest_${version}_macOS_universal.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apple-packages/
+          if-no-files-found: error

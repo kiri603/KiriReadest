@@ -331,6 +331,8 @@
   "Are you sure to delete the selected book?": "確定要刪除已選擇的書籍嗎？",
   "Deselect": "取消選取",
   "Select All": "全選",
+  "Invert Selection": "反選",
+  "Failed to scan folder": "掃描資料夾失敗",
   "No translation available.": "暫無翻譯",
   "Translated by {{provider}}.": "由 {{provider}} 提供翻譯",
   "DeepL": "DeepL",

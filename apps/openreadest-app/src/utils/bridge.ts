@@ -88,6 +88,8 @@ interface SelectDirectoryResponse {
   cancelled?: boolean;
   uri?: string;
   path?: string;
+  directoryName?: string;
+  files?: { relativePath: string; uri: string }[];
   error?: string;
 }
 
@@ -221,8 +223,10 @@ export async function openExternalUrlByNativeBridge(
   return result;
 }
 
-export async function selectDirectory(): Promise<SelectDirectoryResponse> {
-  const result = await invoke<SelectDirectoryResponse>('plugin:native-bridge|select_directory');
+export async function selectDirectory(extensions?: string[]): Promise<SelectDirectoryResponse> {
+  const result = await invoke<SelectDirectoryResponse>('plugin:native-bridge|select_directory', {
+    extensions,
+  });
   return result;
 }
 

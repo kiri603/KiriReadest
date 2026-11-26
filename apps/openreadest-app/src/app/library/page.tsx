@@ -39,9 +39,8 @@ import { useTransferStore } from '@/store/transferStore';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useOpenWithBooks } from '@/hooks/useOpenWithBooks';
 import { SelectedFile, useFileSelector } from '@/hooks/useFileSelector';
-import { lockScreenOrientation, selectDirectory } from '@/utils/bridge';
-import { requestStoragePermission } from '@/utils/permission';
-import { SETTINGS_FILENAME, SUPPORTED_BOOK_EXTS } from '@/services/constants';
+import { lockScreenOrientation } from '@/utils/bridge';
+import { BOOK_ACCEPT_FORMATS, SETTINGS_FILENAME } from '@/services/constants';
 import {
   tauriHandleClose,
   tauriHandleSetAlwaysOnTop,
@@ -60,7 +59,9 @@ import { useDragDropImport } from './hooks/useDragDropImport';
 import { useTransferQueue } from '@/hooks/useTransferQueue';
 import { Toast } from '@/components/Toast';
 import { getBreadcrumbs } from './utils/libraryUtils';
+import { canSelectBookFolder, selectBookFolder, type FolderBook } from './utils/bookFolderImport';
 import Spinner from '@/components/Spinner';
+import BookFolderImportDialog from './components/BookFolderImportDialog';
 import LibraryHeader from './components/LibraryHeader';
 import Bookshelf from './components/Bookshelf';
 import useShortcuts from '@/hooks/useShortcuts';
@@ -115,6 +116,8 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     searchParams?.get('opds') === 'true',
   );
   const [loading, setLoading] = useState(false);
+  const [isScanningFolder, setIsScanningFolder] = useState(false);
+  const [folderBooks, setFolderBooks] = useState<FolderBook[] | null>(null);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [isSelectAll, setIsSelectAll] = useState(false);
@@ -520,15 +523,12 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       try {
         const book = await appService?.importBook(file, library);
         if (!book) return null;
-        const { path, basePath } = selectedFile;
         if (groupId) {
           book.groupId = groupId;
           book.groupName = getGroupName(groupId);
-        } else if (path && basePath) {
-          const rootPath = getDirPath(basePath);
-          const groupName = getDirPath(path).replace(rootPath, '').replace(/^\//, '');
-          book.groupName = groupName;
-          book.groupId = getGroupId(groupName);
+        } else if (selectedFile.groupName !== undefined) {
+          book.groupName = selectedFile.groupName;
+          book.groupId = getGroupId(book.groupName);
         }
 
         if (user && !book.uploadedAt && settings.autoUpload) {
@@ -752,37 +752,29 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   };
 
   const handleImportBooksFromDirectory = async () => {
-    if (!appService || !isTauriAppPlatform()) return;
+    if (!appService || loading || isScanningFolder) return;
 
     setIsSelectMode(false);
-    console.log('Importing books from directory...');
-    let importDirectory: string | undefined = '';
-    if (appService.isAndroidApp) {
-      if (!(await requestStoragePermission())) return;
-      const response = await selectDirectory();
-      importDirectory = response.path;
-    } else {
-      const selectedDir = await appService.selectDirectory?.('read');
-      importDirectory = selectedDir;
+    setIsScanningFolder(true);
+    try {
+      const books = await selectBookFolder(appService);
+      if (books === null) return;
+      if (books.length === 0) {
+        eventDispatcher.dispatch('toast', {
+          message: _('No supported files found. Supported formats: {{formats}}', {
+            formats: BOOK_ACCEPT_FORMATS,
+          }),
+          type: 'info',
+        });
+        return;
+      }
+      setFolderBooks(books);
+    } catch (error) {
+      console.error('Failed to scan book folder:', error);
+      eventDispatcher.dispatch('toast', { message: _('Failed to scan folder'), type: 'error' });
+    } finally {
+      setIsScanningFolder(false);
     }
-    if (!importDirectory) {
-      console.log('No directory selected');
-      return;
-    }
-    const files = await appService.readDirectory(importDirectory, 'None');
-    const supportedFiles = files.filter((file) => {
-      const ext = file.path.split('.').pop()?.toLowerCase() || '';
-      return SUPPORTED_BOOK_EXTS.includes(ext);
-    });
-    const toImportFiles = await Promise.all(
-      supportedFiles.map(async (file) => {
-        return {
-          path: await joinPaths(importDirectory, file.path),
-          basePath: importDirectory,
-        };
-      }),
-    );
-    importBooks(toImportFiles, undefined);
   };
 
   const handleSetSelectMode = (selectMode: boolean) => {
@@ -851,7 +843,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           isSelectAll={isSelectAll}
           onImportBooksFromFiles={handleImportBooksFromFiles}
           onImportBooksFromDirectory={
-            appService?.canReadExternalDir ? handleImportBooksFromDirectory : undefined
+            canSelectBookFolder(appService) ? handleImportBooksFromDirectory : undefined
           }
           onOpenCatalogManager={handleShowOPDSDialog}
           onToggleSelectMode={() => handleSetSelectMode(!isSelectMode)}
@@ -867,7 +859,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           max='100'
         />
       </div>
-      {(loading || isSyncing) && (
+      {(loading || isScanningFolder || isSyncing) && (
         <div className='fixed inset-0 z-50 flex items-center justify-center'>
           <Spinner loading />
         </div>
@@ -968,6 +960,16 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             </div>
           </div>
         ))}
+      {folderBooks && (
+        <BookFolderImportDialog
+          books={folderBooks}
+          onClose={() => setFolderBooks(null)}
+          onImport={(books) => {
+            setFolderBooks(null);
+            void importBooks(books);
+          }}
+        />
+      )}
       {showDetailsBook && (
         <BookDetailModal
           isOpen={!!showDetailsBook}

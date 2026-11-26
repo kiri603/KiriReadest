@@ -47,7 +47,7 @@ export const tauriHandleClose = async () => {
   getCurrentWindow().close();
 };
 
-export const tauriHandleOnCloseWindow = async (callback: () => void) => {
+export const tauriHandleOnCloseWindow = async (callback: () => void | Promise<void>) => {
   const currentWindow = getCurrentWindow();
   return await currentWindow.onCloseRequested(async (event) => {
     event.preventDefault();

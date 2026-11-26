@@ -1,45 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { FaSearch, FaTimes } from 'react-icons/fa';
 
-import { useBookDataStore } from '@/store/bookDataStore';
-import { useSettingsStore } from '@/store/settingsStore';
-import { resolveWordNote } from '@/utils/wordNotes';
 import { useTranslation } from '@/hooks/useTranslation';
-import { BookNote } from '@/types/book';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 
 interface SearchBarProps {
   isVisible: boolean;
-  bookKey: string;
   searchTerm: string;
-  onSearchResultChange: (results: BookNote[] | null) => void;
+  onSearchTermChange: (term: string) => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({
-  isVisible,
-  bookKey,
-  searchTerm: term,
-  onSearchResultChange,
-}) => {
+const SearchBar: React.FC<SearchBarProps> = ({ isVisible, searchTerm, onSearchTermChange }) => {
   const _ = useTranslation();
-  const { getConfig } = useBookDataStore();
-  const [searchTerm, setSearchTerm] = useState(term);
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const iconSize16 = useResponsiveSize(16);
   const iconSize12 = useResponsiveSize(12);
-
-  useEffect(() => {
-    handleSearchTermChange(searchTerm);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookKey]);
-
-  useEffect(() => {
-    setSearchTerm(term);
-    handleSearchTermChange(term);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [term]);
 
   useEffect(() => {
     if (isVisible && inputRef.current) {
@@ -56,70 +32,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
-      }
     };
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchTerm(value);
-
-    if (searchTimeout.current) {
-      clearTimeout(searchTimeout.current);
-    }
-
-    searchTimeout.current = setTimeout(() => {
-      handleSearchTermChange(value);
-    }, 300);
-  };
-
   const handleClearSearch = () => {
-    setSearchTerm('');
-    handleSearchTermChange('');
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  };
-
-  const filterNotes = (notes: BookNote[], query: string): BookNote[] => {
-    if (!query.trim()) return [];
-
-    const lowercaseQuery = query.toLowerCase();
-    return notes.filter((note) => {
-      const textMatch = note.text?.toLowerCase().includes(lowercaseQuery) || false;
-      const noteMatch = note.note?.toLowerCase().includes(lowercaseQuery) || false;
-      return textMatch || noteMatch;
-    });
-  };
-
-  const handleSearchTermChange = (term: string) => {
-    if (term.trim().length >= 1) {
-      handleSearch(term);
-    } else {
-      resetSearch();
-    }
-  };
-
-  const handleSearch = (term: string) => {
-    const config = getConfig(bookKey);
-    if (!config) {
-      resetSearch();
-      return;
-    }
-
-    const { booknotes: allNotes = [] } = config;
-    const validNotes = allNotes
-      .filter((note) => !note.deletedAt)
-      .map((note) => resolveWordNote(note, useSettingsStore.getState().settings.wordNotes));
-
-    const results = filterNotes(validNotes, term);
-    onSearchResultChange(results);
-  };
-
-  const resetSearch = () => {
-    onSearchResultChange(null);
+    onSearchTermChange('');
+    inputRef.current?.focus();
   };
 
   return (
@@ -134,7 +52,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
           type='text'
           value={searchTerm}
           spellCheck={false}
-          onChange={handleInputChange}
+          onChange={(event) => onSearchTermChange(event.target.value)}
           placeholder={_('Search notes and excerpts...')}
           className='w-full bg-transparent p-2 font-sans text-sm font-light focus:outline-none'
         />

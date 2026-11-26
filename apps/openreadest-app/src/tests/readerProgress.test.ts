@@ -48,17 +48,18 @@ afterEach(() => {
   useBookDataStore.setState({ booksData: {} });
 });
 
-const relocate = () =>
+const relocate = (location = 'page-normalized-range', reason?: string) =>
   useReaderStore
     .getState()
     .setProgress(
       'book-view',
-      'page-normalized-range',
+      location,
       { id: 1, href: 'chapter', label: 'Chapter' },
       { current: 1, total: 5 },
       { current: 9, total: 100 },
       { section: 1, total: 10 },
       document.createRange(),
+      reason,
     );
 
 describe('reading position versions', () => {
@@ -82,6 +83,29 @@ describe('reading position versions', () => {
     relocate();
     expect(useBookDataStore.getState().getConfig('book-view')).toMatchObject({
       location: 'page-normalized-range',
+      progressUpdatedAt: 100,
+    });
+  });
+
+  it('preserves the reading version when only the visible EPUB range end changes', () => {
+    const config = useBookDataStore.getState().getConfig('book-view')!;
+    config.location = 'epubcfi(/6/50!/4,/2,/28/1:27)';
+    useReaderStore.getState().setViewInited('book-view', true);
+    relocate('epubcfi(/6/50!/4,/2,/8/5:28)', 'page');
+    expect(useBookDataStore.getState().getConfig('book-view')).toMatchObject({
+      location: 'epubcfi(/6/50!/4,/2,/28/1:27)',
+      progressUpdatedAt: 10,
+    });
+  });
+
+  it('ignores a delayed anchor relocation but records the next explicit navigation', () => {
+    useReaderStore.getState().setViewInited('book-view', true);
+    relocate('settled-range', 'anchor');
+    relocate('browser-scroll-range', 'container-scroll');
+    expect(useBookDataStore.getState().getConfig('book-view')?.progressUpdatedAt).toBe(10);
+    relocate('new-chapter', 'navigation');
+    expect(useBookDataStore.getState().getConfig('book-view')).toMatchObject({
+      location: 'new-chapter',
       progressUpdatedAt: 100,
     });
   });

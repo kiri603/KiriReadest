@@ -16,8 +16,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { UnlistenFn } from '@tauri-apps/api/event';
 import { tauriHandleClose, tauriHandleOnCloseWindow } from '@/utils/window';
 import { isTauriAppPlatform } from '@/services/environment';
+import { flushWebDavReadingProgress } from '@/services/webdav/sync/readingProgress';
 import { uniqueId } from '@/utils/misc';
-import { throttle } from '@/utils/throttle';
 import { eventDispatcher } from '@/utils/event';
 import { navigateToLibrary } from '@/utils/nav';
 import { clearDiscordPresence } from '@/utils/discord';
@@ -46,6 +46,8 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   const { isSettingsDialogOpen, settingsDialogBookKey } = useSettingsStore();
   const [showDetailsBook, setShowDetailsBook] = useState<Book | null>(null);
   const isInitiating = useRef(false);
+  const closingBooks = useRef(new Map<string, Promise<void>>());
+  const closingAllBooks = useRef<Promise<void> | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorLoading, setErrorLoading] = useState(false);
 
@@ -123,54 +125,58 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookKeys]);
 
-  const saveBookConfig = async (bookKey: string) => {
-    const config = getConfig(bookKey);
-    const { book } = getBookData(bookKey) || {};
-    const { isPrimary } = getViewState(bookKey) || {};
-    if (isPrimary && book && config) {
-      const settings = useSettingsStore.getState().settings;
-      eventDispatcher.dispatch('sync-book-progress', { bookKey });
-      eventDispatcher.dispatch('flush-kosync', { bookKey });
-      await saveConfig(envConfig, bookKey, config, settings);
-    }
-  };
-
-  const saveConfigAndCloseBook = async (bookKey: string) => {
-    console.log('Closing book', bookKey);
-
+  const saveConfigAndCloseBook = (bookKey: string) => {
+    const pending = closingBooks.current.get(bookKey);
+    if (pending) return pending;
     const viewState = getViewState(bookKey);
-    if (viewState?.isPrimary && appService?.isDesktopApp) {
-      await clearDiscordPresence(appService);
-    }
-
-    try {
-      getView(bookKey)?.close();
-      getView(bookKey)?.remove();
-    } catch {
-      console.info('Error closing book', bookKey);
-    }
-    eventDispatcher.dispatch('tts-stop', { bookKey });
-    await saveBookConfig(bookKey);
-    clearViewState(bookKey);
+    if (!viewState) return Promise.resolve();
+    const config = viewState.isPrimary ? getConfig(bookKey) : undefined;
+    const book = getBookData(bookKey)?.book;
+    const close = async () => {
+      console.log('Closing book', bookKey);
+      if (viewState.isPrimary && appService?.isDesktopApp) {
+        await clearDiscordPresence(appService);
+      }
+      try {
+        getView(bookKey)?.close();
+        getView(bookKey)?.remove();
+      } catch {
+        console.info('Error closing book', bookKey);
+      }
+      eventDispatcher.dispatch('tts-stop', { bookKey });
+      if (book && config) {
+        const settings = useSettingsStore.getState().settings;
+        eventDispatcher.dispatch('sync-book-progress', { bookKey });
+        eventDispatcher.dispatch('flush-kosync', { bookKey });
+        clearViewState(bookKey);
+        await saveConfig(envConfig, bookKey, config, settings);
+        await flushWebDavReadingProgress(book, config);
+      } else {
+        clearViewState(bookKey);
+      }
+    };
+    const completion = close().finally(() => closingBooks.current.delete(bookKey));
+    closingBooks.current.set(bookKey, completion);
+    return completion;
   };
 
   const navigateBackToLibrary = () => {
     navigateToLibrary(router, '', undefined, true);
   };
 
-  const saveSettingsAndGoToLibrary = () => {
-    saveSettings(envConfig, settings);
-    navigateBackToLibrary();
+  const handleCloseBooks = () => {
+    if (!closingAllBooks.current) {
+      closingAllBooks.current = Promise.all(bookKeys.map(saveConfigAndCloseBook))
+        .then(() => saveSettings(envConfig, useSettingsStore.getState().settings))
+        .finally(() => {
+          closingAllBooks.current = null;
+        });
+    }
+    return closingAllBooks.current;
   };
 
-  const handleCloseBooks = throttle(async () => {
-    const settings = useSettingsStore.getState().settings;
-    await Promise.all(bookKeys.map(async (key) => await saveConfigAndCloseBook(key)));
-    await saveSettings(envConfig, settings);
-  }, 200);
-
-  const handleCloseBooksToLibrary = () => {
-    handleCloseBooks();
+  const handleCloseBooksToLibrary = async () => {
+    await handleCloseBooks();
     if (isTauriAppPlatform()) {
       const currentWindow = getCurrentWindow();
       if (currentWindow.label === 'main') {
@@ -184,7 +190,8 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   };
 
   const handleCloseBook = async (bookKey: string) => {
-    saveConfigAndCloseBook(bookKey);
+    if (closingBooks.current.has(bookKey) || closingAllBooks.current) return;
+    await saveConfigAndCloseBook(bookKey);
     if (sideBarBookKey === bookKey) {
       setSideBarBookKey(getNextBookKey(sideBarBookKey));
     }
@@ -201,7 +208,8 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
           return await currentWindow.close();
         }
       }
-      saveSettingsAndGoToLibrary();
+      await saveSettings(envConfig, settings);
+      navigateBackToLibrary();
     }
   };
 

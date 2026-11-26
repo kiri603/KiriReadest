@@ -55,6 +55,7 @@ import { useBookCoverAutoSave } from '../hooks/useAutoSaveBookCover';
 import { useDiscordPresence } from '@/hooks/useDiscordPresence';
 import { manageSyntaxHighlighting } from '@/utils/highlightjs';
 import { getViewInsets } from '@/utils/insets';
+import { getLayeredTurnStyle } from '@/utils/turnStyle';
 import { removeTabIndex } from '@/utils/a11y';
 import { isCJKLang } from '@/utils/lang';
 import { getLocale } from '@/utils/misc';
@@ -131,6 +132,7 @@ const FoliateViewer: React.FC<{
       detail.location,
       detail.time,
       detail.range,
+      detail.reason,
     );
   };
 
@@ -384,6 +386,7 @@ const FoliateViewer: React.FC<{
         view.renderer.setAttribute('max-inline-size', `${maxInlineSize}px`);
         view.renderer.setAttribute('max-block-size', `${maxBlockSize}px`);
       }
+      applyTurnStyle();
       applyMarginAndGap();
 
       const lastLocation = config.location;
@@ -429,6 +432,22 @@ const FoliateViewer: React.FC<{
     viewRef.current?.renderer.setAttribute('gap', `${viewSettings.gapPercent}%`);
     if (viewSettings.scrolled) {
       viewRef.current?.renderer.setAttribute('flow', 'scrolled');
+    }
+  };
+
+  // Vertical books paginate along the block axis, so the legacy two-phase
+  // horizontal slide can only show the bare page background between the
+  // outgoing and the incoming page. Ask the paginator for its layered
+  // (View Transitions) turn instead: the finished page slides away over the
+  // already-rendered next page, keeping the turn continuous.
+  const applyTurnStyle = () => {
+    const renderer = viewRef.current?.renderer;
+    if (!renderer) return;
+    const turnStyle = getLayeredTurnStyle(getViewSettings(bookKey));
+    if (turnStyle) {
+      renderer.setAttribute('turn-style', turnStyle);
+    } else {
+      renderer.removeAttribute('turn-style');
     }
   };
 
@@ -508,6 +527,18 @@ const FoliateViewer: React.FC<{
     viewSettings?.showFooter,
     viewSettings?.showTTSBar,
     viewState?.ttsEnabled,
+  ]);
+
+  useEffect(() => {
+    // Switching between vertical and horizontal (or toggling the page-turn
+    // animation) must re-decide the turn style for the renderer.
+    applyTurnStyle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    viewSettings?.vertical,
+    viewSettings?.writingMode,
+    viewSettings?.animated,
+    viewSettings?.isEink,
   ]);
 
   const showViewMargins = viewSettings?.showMarginsOnScroll && viewSettings?.scrolled;

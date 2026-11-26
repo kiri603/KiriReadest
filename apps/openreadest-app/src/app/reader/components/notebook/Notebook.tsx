@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useState } from 'react';
 
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -45,8 +45,8 @@ const Notebook: React.FC = ({}) => {
   const { setNotebookNewAnnotation, setNotebookEditAnnotation } = useNotebookStore();
 
   const [isSearchBarVisible, setIsSearchBarVisible] = useState(false);
-  const [searchResults, setSearchResults] = useState<BookNote[] | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const onNavigateEvent = async () => {
     const pinButton = document.querySelector('.sidebar-pin-btn');
@@ -200,9 +200,17 @@ const Notebook: React.FC = ({}) => {
   const config = getConfig(sideBarBookKey);
   const { booknotes: allNotes = [] } = config || {};
   const annotationNotes = allNotes
-    .filter((note) => note.type === 'annotation' && note.note && !note.deletedAt)
+    .filter((note) => note.type === 'annotation' && !note.deletedAt)
     .map((note) => resolveWordNote(note, settings.wordNotes))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .filter((note) => note.note);
+  const linkedWordNoteIds = new Set(annotationNotes.map((note) => note.wordNoteId));
+  const standaloneWordNotes = (settings.wordNotes ?? []).filter(
+    (note) =>
+      !linkedWordNoteIds.has(note.id) && !note.aliases?.some((id) => linkedWordNoteIds.has(id)),
+  );
+  const notes = [...annotationNotes, ...standaloneWordNotes].sort(
+    (a, b) => b.createdAt - a.createdAt,
+  );
   const excerptNotes = allNotes
     .filter((note) => note.type === 'excerpt' && note.text && !note.deletedAt)
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -210,26 +218,17 @@ const Notebook: React.FC = ({}) => {
   const handleToggleSearchBar = () => {
     setIsSearchBarVisible((prev) => !prev);
     if (isSearchBarVisible) {
-      setSearchResults(null);
       setSearchTerm('');
     }
   };
 
-  const filteredAnnotationNotes = useMemo(
-    () =>
-      isSearchBarVisible && searchResults
-        ? searchResults.filter((note) => note.type === 'annotation' && note.note && !note.deletedAt)
-        : annotationNotes,
-    [annotationNotes, searchResults, isSearchBarVisible],
+  const query = isSearchBarVisible ? deferredSearchTerm.trim().toLowerCase() : '';
+  const matchesSearch = (text: string | undefined, note: string) =>
+    !query || text?.toLowerCase().includes(query) || note?.toLowerCase().includes(query);
+  const filteredNotes = notes.filter((item) =>
+    matchesSearch('word' in item ? item.word : item.text, item.note),
   );
-
-  const filteredExcerptNotes = useMemo(
-    () =>
-      isSearchBarVisible && searchResults
-        ? searchResults.filter((note) => note.type === 'excerpt' && note.text && !note.deletedAt)
-        : excerptNotes,
-    [excerptNotes, searchResults, isSearchBarVisible],
-  );
+  const filteredExcerptNotes = excerptNotes.filter((item) => matchesSearch(item.text, item.note));
 
   if (!sideBarBookKey) return null;
 
@@ -241,8 +240,8 @@ const Notebook: React.FC = ({}) => {
   const { bookDoc } = bookData;
   const languageDir = getBookDirFromLanguage(bookDoc.metadata.language);
 
-  const hasSearchResults = filteredAnnotationNotes.length > 0 || filteredExcerptNotes.length > 0;
-  const hasAnyNotes = annotationNotes.length > 0 || excerptNotes.length > 0;
+  const hasSearchResults = filteredNotes.length > 0 || filteredExcerptNotes.length > 0;
+  const hasAnyNotes = notes.length > 0 || excerptNotes.length > 0;
 
   return isNotebookVisible ? (
     <>
@@ -307,14 +306,13 @@ const Notebook: React.FC = ({}) => {
           >
             <SearchBar
               isVisible={isSearchBarVisible}
-              bookKey={sideBarBookKey}
               searchTerm={searchTerm}
-              onSearchResultChange={setSearchResults}
+              onSearchTermChange={setSearchTerm}
             />
           </div>
         </div>
         <div className='flex-grow overflow-y-auto px-3'>
-          {isSearchBarVisible && searchResults && !hasSearchResults && hasAnyNotes && (
+          {query && !hasSearchResults && hasAnyNotes && (
             <div className='flex h-32 items-center justify-center text-gray-500'>
               <p className='font-size-sm text-center'>{_('No notes match your search')}</p>
             </div>
@@ -323,7 +321,7 @@ const Notebook: React.FC = ({}) => {
             {filteredExcerptNotes.length > 0 && (
               <p className='content font-size-base'>
                 {_('Excerpts')}
-                {isSearchBarVisible && searchResults && (
+                {query && (
                   <span className='font-size-xs ml-2 text-gray-500'>
                     ({filteredExcerptNotes.length})
                   </span>
@@ -376,13 +374,11 @@ const Notebook: React.FC = ({}) => {
             ))}
           </ul>
           <div dir='ltr'>
-            {(notebookNewAnnotation || filteredAnnotationNotes.length > 0) && (
+            {(notebookNewAnnotation || filteredNotes.length > 0) && (
               <p className='content font-size-base'>
                 {_('Notes')}
-                {isSearchBarVisible && searchResults && filteredAnnotationNotes.length > 0 && (
-                  <span className='font-size-xs ml-2 text-gray-500'>
-                    ({filteredAnnotationNotes.length})
-                  </span>
+                {query && filteredNotes.length > 0 && (
+                  <span className='font-size-xs ml-2 text-gray-500'>({filteredNotes.length})</span>
                 )}
               </p>
             )}
@@ -394,9 +390,32 @@ const Notebook: React.FC = ({}) => {
             />
           )}
           <ul>
-            {filteredAnnotationNotes.map((item, index) => (
-              <BooknoteItem key={`${index}-${item.cfi}`} bookKey={sideBarBookKey} item={item} />
-            ))}
+            {filteredNotes.map((item) =>
+              'word' in item ? (
+                <li
+                  key={`word-${item.id}`}
+                  className='booknote-item bg-base-100 content my-2 rounded-lg p-2'
+                >
+                  <p className='font-size-sm whitespace-pre-wrap break-words' dir='auto'>
+                    {item.note}
+                  </p>
+                  <div className='mt-2 flex flex-wrap items-baseline justify-between gap-x-2'>
+                    <span className='font-size-xs border-base-300 border-s-2 ps-2' dir='auto'>
+                      {item.word}
+                    </span>
+                    <span className='font-size-xs text-base-content/70'>
+                      {_('Word note for all books')}
+                    </span>
+                  </div>
+                </li>
+              ) : (
+                <BooknoteItem
+                  key={`annotation-${item.id}-${item.cfi}`}
+                  bookKey={sideBarBookKey}
+                  item={item}
+                />
+              ),
+            )}
           </ul>
         </div>
       </div>

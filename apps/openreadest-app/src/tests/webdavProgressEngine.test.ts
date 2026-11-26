@@ -13,6 +13,7 @@ import type { WebDavProfile } from '@/services/webdav/models';
 const server = vi.hoisted(() => ({
   files: new Map<string, { text: string; etag: string }>(),
   getFailures: new Map<string, { status: number; error?: string }>(),
+  afterPut: undefined as ((path: string) => void) | undefined,
   revision: 0,
 }));
 
@@ -49,6 +50,7 @@ vi.mock('@/services/webdav/client/WebDavClient', () => ({
       }
       const etag = String(++server.revision);
       server.files.set(path, { text: new TextDecoder().decode(body), etag });
+      server.afterPut?.(path);
       return { ok: true, status: 201, headers: new Headers({ etag: `"${etag}"` }) };
     }
     async delete(path: string) {
@@ -109,6 +111,7 @@ const position = (location: string, time: number) => ({
 beforeEach(() => {
   server.files.clear();
   server.getFailures.clear();
+  server.afterPut = undefined;
   server.revision = 0;
   let time = 1000;
   vi.spyOn(Date, 'now').mockImplementation(() => ++time);
@@ -174,6 +177,22 @@ describe('WebDAV progress across devices', () => {
 
     await phone.sync();
     expect(phone.read().location).toBe('chapter-3');
+    expect(JSON.parse(server.files.get(remoteConfigPath)!.text).location).toBe('chapter-3');
+  });
+
+  it('keeps a position saved at close during an earlier WebDAV merge and retries it', async () => {
+    const pc = device(position('chapter-1', 10));
+    await pc.sync();
+    pc.write(position('chapter-2', 20));
+    server.afterPut = (path) => {
+      if (path === remoteConfigPath) pc.write(position('chapter-3', 30));
+    };
+
+    await pc.sync();
+
+    expect(pc.read().location).toBe('chapter-3');
+    server.afterPut = undefined;
+    await pc.sync();
     expect(JSON.parse(server.files.get(remoteConfigPath)!.text).location).toBe('chapter-3');
   });
 

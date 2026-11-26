@@ -765,6 +765,14 @@ export const syncWebDavSelection = async (
           log('upload', item.key, 'failed', uploadResult.error || '合并上传失败');
           return true;
         }
+        // A reader window can save while this upload is in flight. Preserve that
+        // edit and keep the old baseline so the next sync will pick it up.
+        const currentText = await appService.readFile(item.localPath, 'Books', 'text');
+        if (currentText !== localText) {
+          operationFailed = true;
+          log('upload', item.key, 'skipped', '本地配置已更新，将在下次同步');
+          return true;
+        }
         await appService.writeFile(item.localPath, 'Books', merged.text);
         completedTransfer = 'merge';
         log('upload', item.key, 'completed', '已合并两端内容');

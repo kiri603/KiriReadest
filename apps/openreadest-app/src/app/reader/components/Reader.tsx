@@ -2,7 +2,7 @@
 
 import clsx from 'clsx';
 import * as React from 'react';
-import { useEffect, Suspense } from 'react';
+import { useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useEnv } from '@/context/EnvContext';
@@ -53,6 +53,7 @@ Z-Index Layering Guide:
 
 const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const router = useRouter();
+  const closingReader = useRef(false);
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const { libraryLoaded } = useLibrary();
@@ -107,9 +108,15 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
         setSideBarVisible(false);
       } else if (getIsNotebookVisible() && !isNotebookPinned) {
         setNotebookVisible(false);
-      } else {
-        eventDispatcher.dispatch('close-reader');
-        router.back();
+      } else if (!closingReader.current) {
+        closingReader.current = true;
+        void eventDispatcher
+          .dispatch('close-reader')
+          .catch((error) => console.error('Failed to save reading progress while closing', error))
+          .finally(() => {
+            router.back();
+            closingReader.current = false;
+          });
       }
       return true;
     }

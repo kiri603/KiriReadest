@@ -11,11 +11,13 @@ import {
 } from '@/types/book';
 import { Insets } from '@/types/misc';
 import { EnvConfigType } from '@/services/environment';
+import { pullWebDavReadingProgress } from '@/services/webdav/sync/readingProgress';
 import { FoliateView } from '@/types/view';
 import { DocumentLoader, TOCItem } from '@/libs/document';
 import { updateToc } from '@/utils/toc';
 import { formatTitle, getMetadataHash, getPrimaryLanguage } from '@/utils/book';
 import { getBaseFilename } from '@/utils/path';
+import { isSameReadingAnchor } from '@/utils/cfi';
 import { SUPPORTED_LANGNAMES } from '@/services/constants';
 import { useSettingsStore } from './settingsStore';
 import { useBookDataStore } from './bookDataStore';
@@ -61,6 +63,7 @@ interface ReaderStore {
     pageinfo: PageInfo,
     timeinfo: TimeInfo,
     range: Range,
+    reason?: string,
   ) => void;
   getProgress: (key: string) => BookProgress | null;
   setView: (key: string, view: FoliateView) => void;
@@ -185,7 +188,8 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         const doc = await new DocumentLoader(file).open();
         bookDoc = doc.book;
       }
-      const config = await appService.loadBookConfig(book, settings);
+      const savedConfig = await appService.loadBookConfig(book, settings);
+      const config = reload ? savedConfig : await pullWebDavReadingProgress(book, savedConfig);
       await updateToc(
         bookDoc,
         config.viewSettings?.sortedTOC ?? false,
@@ -307,6 +311,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     pageinfo: PageInfo,
     timeinfo: TimeInfo,
     range: Range,
+    reason?: string,
   ) =>
     set((state) => {
       const id = key.split('-')[0]!;
@@ -334,16 +339,17 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       const oldConfig = bookData.config;
       // Restoring a CFI can relocate to a different page boundary on each screen.
       // Preserve its original anchor/version until the reader actually navigates.
-      const restoring = !viewState.inited || viewState.applyingSyncedProgress;
-      const savedLocation = restoring ? oldConfig?.location || location : location;
+      const layoutRelocation = reason === 'anchor' || reason === 'container-scroll';
+      const restoring = !viewState.inited || viewState.applyingSyncedProgress || layoutRelocation;
+      const navigated = !restoring && !isSameReadingAnchor(oldConfig?.location, location);
+      const savedLocation = navigated ? location : oldConfig?.location || location;
       const newConfig = {
         ...bookData.config,
         progress,
         location: savedLocation,
-        progressUpdatedAt:
-          !restoring && savedLocation !== oldConfig?.location
-            ? Date.now()
-            : (oldConfig?.progressUpdatedAt ?? oldConfig?.updatedAt),
+        progressUpdatedAt: navigated
+          ? Date.now()
+          : (oldConfig?.progressUpdatedAt ?? oldConfig?.updatedAt),
       } as BookConfig;
 
       useBookDataStore.setState((state) => ({
